@@ -128,7 +128,8 @@ export async function runTurn(
   const result: AgentResult = {
     title: draft.title || context.headline || agent.name,
     answer: draft.answer,
-    facts: mergeItems(context.facts, draft.facts, 8),
+    // Facts are what the analysis computed; the model's own only when there are none, since facts go to shared memory.
+    facts: context.facts?.length ? context.facts.slice(0, 8) : mergeItems([], draft.facts, 8),
     pending: mergeItems(context.pending, draft.pending, 6),
     suggestions: mergeItems(context.suggestions, draft.suggestions, 6),
     // Actions the analysis worked out become tasks; the model's own only when the analysis has none.

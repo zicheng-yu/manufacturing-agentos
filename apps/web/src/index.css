@@ -1,15 +1,38 @@
 @import 'tailwindcss';
 
+/* Steel-frame industrial look: steel-ink chrome, cement-grey ground, one industrial blue, safety colours for state. */
 @theme {
-  --font-sans: 'Inter', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
-  --color-brand-50: #eff6ff;
-  --color-brand-100: #dbeafe;
-  --color-brand-500: #3b82f6;
-  --color-brand-600: #1d4ed8;
-  --color-brand-700: #1e40af;
-  --color-ink-900: #0b1f3a;
-  --color-ink-800: #12294a;
-  --color-ink-700: #1c3a63;
+  --font-sans: 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC', system-ui, sans-serif;
+  --font-num: 'Barlow Condensed', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+
+  --color-brand-50: #e8effc;
+  --color-brand-100: #d3e0fa;
+  --color-brand-300: #9db8f0;
+  --color-brand-400: #6a93e6;
+  --color-brand-500: #3a72de;
+  --color-brand-600: #1d5bd6;
+  --color-brand-700: #1546a8;
+  --color-brand-800: #103a8a;
+  --color-ink-900: #0e1726;
+  --color-ink-800: #1b2638;
+  --color-ink-700: #26344a;
+
+  /* Steel greys; 400 and up pass 4.5:1 on white so small labels stay legible. */
+  --color-slate-50: #f4f6f9;
+  --color-slate-100: #eef1f5;
+  --color-slate-200: #d5dbe3;
+  --color-slate-300: #b8c3d3;
+  --color-slate-400: #6b7686;
+  --color-slate-500: #5b6676;
+  --color-slate-600: #475569;
+  --color-slate-700: #334155;
+  --color-slate-800: #1e293b;
+  --color-slate-900: #0f172a;
+
+  --color-alert: #c81e1e;
+  --color-watch: #fde7b0;
+  --color-watch-ink: #7a4a00;
 }
 
 html,
@@ -19,9 +42,26 @@ body,
 }
 
 body {
-  background: #f4f6fa;
-  color: #0f172a;
+  background: var(--color-slate-100);
+  color: var(--color-slate-900);
   -webkit-font-smoothing: antialiased;
+}
+
+/* Gauge readings and codes. */
+.num {
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Safety stripe: only on the top edge of something in alert. */
+.hazard {
+  background-image: repeating-linear-gradient(135deg, #c81e1e 0 10px, #7f1212 10px 20px);
+}
+
+/* Where a photo goes; also what shows when the photo is missing. */
+.photo-slot {
+  background-color: var(--color-ink-800);
+  background-image: repeating-linear-gradient(135deg, rgb(255 255 255 / 0.07) 0 2px, transparent 2px 16px);
 }
 
 /* A brief highlight on anything that just changed from the live stream. */

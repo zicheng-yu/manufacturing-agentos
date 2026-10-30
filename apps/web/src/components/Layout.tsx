@@ -1,5 +1,6 @@
 import { DOMAINS, ROLE_LABELS } from '@agentos/shared';
 import { Activity, Bot, LayoutDashboard, LogOut, UserCog, type LucideIcon } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router';
 import { useSession } from '../session.tsx';
 import { cx, DOMAIN_ICONS, scopeLabel } from '../ui.tsx';
@@ -8,6 +9,17 @@ interface NavItem {
   to: string;
   label: string;
   icon: LucideIcon;
+}
+
+/** Wall-clock for the live demo, China time like the shop floor. */
+function Clock() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  const text = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(now);
+  return <span className="hidden font-mono text-xs text-slate-900 tabular-nums lg:inline">{text.replace('/', '-')}</span>;
 }
 
 export function Layout() {
@@ -38,8 +50,8 @@ export function Layout() {
       end={item.to === '/'}
       className={({ isActive }) =>
         cx(
-          'flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors',
-          isActive ? 'bg-white/12 font-medium text-white' : 'text-slate-300 hover:bg-white/6 hover:text-white',
+          'flex shrink-0 items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors',
+          isActive ? 'bg-white/10 font-semibold text-white' : 'text-[#b8c3d3] hover:bg-white/6 hover:text-white',
         )
       }
     >
@@ -52,46 +64,52 @@ export function Layout() {
 
   return (
     <div className="flex h-full min-h-0 flex-col md:flex-row">
-      <aside className="flex shrink-0 flex-col bg-ink-900 text-white md:w-56">
+      <aside className="flex shrink-0 flex-col bg-ink-900 text-white md:w-58">
         <div className="flex items-center gap-2.5 px-4 py-4">
-          <img src="/favicon.svg" alt="" className="size-8" />
-          <div className="leading-tight">
-            <div className="text-sm font-semibold">{session.company.shortName} AgentOS</div>
-            <div className="text-[11px] text-slate-400">{session.company.tagline}</div>
+          <span className="relative flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand-600">
+            <span className="num text-[22px] font-bold">D</span>
+            <span className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-sky-300" />
+          </span>
+          <div className="min-w-0 leading-tight">
+            <div className="text-[15px] font-bold">{session.company.shortName} AgentOS</div>
+            <div className="font-mono text-[10px] tracking-[0.08em] text-[#8c9ab0]">MANUFACTURING · OS</div>
           </div>
         </div>
-        <nav className="flex gap-1 overflow-x-auto px-2 pb-2 md:flex-1 md:flex-col md:overflow-visible">
+        <nav aria-label="主导航" className="flex gap-0.5 overflow-x-auto px-2 pb-2 md:flex-1 md:flex-col md:overflow-visible">
           {main.map(link)}
-          <div className="hidden px-3 pt-4 pb-1 text-[11px] tracking-wider text-slate-500 md:block">业务模块</div>
+          <div className="hidden px-3 pt-4 pb-1 font-mono text-[10px] tracking-[0.12em] text-[#8c9ab0] md:block">业务模块 · MODULES</div>
           {modules.map(link)}
-          <div className="hidden px-3 pt-4 pb-1 text-[11px] tracking-wider text-slate-500 md:block">系统</div>
+          <div className="hidden px-3 pt-4 pb-1 font-mono text-[10px] tracking-[0.12em] text-[#8c9ab0] md:block">系统 · SYSTEM</div>
           {system.map(link)}
         </nav>
-        <div className="hidden border-t border-white/10 px-4 py-3 text-xs md:block">
-          <div className="font-medium">{session.account.displayName}</div>
-          <div className="text-slate-400">{ROLE_LABELS[session.account.role]}</div>
-          <button onClick={() => void logout()} className="mt-2 inline-flex items-center gap-1 text-slate-400 hover:text-white">
-            <LogOut className="size-3.5" />
-            退出登录
+        <div className="hidden items-center gap-2.5 border-t border-white/10 px-4 py-3 md:flex">
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ink-800 text-[13px] font-bold">{session.account.displayName.slice(0, 1)}</span>
+          <div className="min-w-0 flex-1 text-xs leading-tight">
+            <div className="font-semibold">{session.account.displayName}</div>
+            <div className="text-[#8c9ab0]">{ROLE_LABELS[session.account.role]}</div>
+          </div>
+          <button onClick={() => void logout()} aria-label="退出登录" title="退出登录" className="rounded p-1.5 text-[#8c9ab0] hover:bg-white/10 hover:text-white">
+            <LogOut className="size-4" />
           </button>
         </div>
       </aside>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <header className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-slate-200 bg-white px-4 py-2.5 md:px-6">
-          <div className="min-w-0 flex-1 truncate text-sm text-slate-500">
+        <header className="flex flex-wrap items-center gap-x-5 gap-y-1 border-b border-slate-200 bg-white px-4 py-3 md:px-7">
+          <div className="min-w-0 flex-1 truncate text-[13px] text-slate-600">
             <span className="hidden sm:inline">{session.company.name}</span>
           </div>
-          <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] text-amber-700 ring-1 ring-amber-200" title={session.company.demoNotice}>
+          <span className="rounded-full border border-[#f5d27a] bg-amber-100 px-2.5 py-0.5 text-xs text-watch-ink" title={session.company.demoNotice}>
             演示数据
           </span>
-          <span className="text-[11px] text-slate-500" title="当前模型">
-            模型：{llm}
+          <span className="hidden font-mono text-xs text-slate-600 sm:inline" title="当前模型">
+            MODEL · {llm}
           </span>
-          <span className={cx('inline-flex items-center gap-1.5 text-[11px]', live ? 'text-emerald-600' : 'text-slate-400')}>
-            <span className={cx('size-2 rounded-full', live ? 'animate-pulse bg-emerald-500' : 'bg-slate-300')} />
+          <span className={cx('inline-flex items-center gap-1.5 text-xs', live ? 'text-green-700' : 'text-slate-500')}>
+            <span className={cx('size-2 rounded-full ring-[3px]', live ? 'bg-green-600 ring-green-600/20' : 'bg-slate-300 ring-transparent')} />
             {live ? '实时连接' : '未连接'}
           </span>
+          <Clock />
           <button onClick={() => void logout()} className="text-[11px] text-slate-500 hover:text-slate-800 md:hidden">
             退出
           </button>
