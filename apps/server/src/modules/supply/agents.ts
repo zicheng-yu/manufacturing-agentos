@@ -11,7 +11,7 @@ import {
   supplierName,
   type Material,
 } from './data.ts';
-import { isSupplierQuestion, matchSuppliers, resolveMaterial, unknownSuppliers } from './lookup.ts';
+import { isInventoryOverview, isSupplierInventoryQuestion, isSupplierQuestion, matchSuppliers, materialCodes, resolveMaterial, unknownSuppliers } from './lookup.ts';
 import { riskEvents, riskTable, supplierRisks } from './risk.ts';
 
 /** Quantity to bring cover back to safety stock plus one week, counting everything already on order. */
@@ -85,7 +85,7 @@ export const sourcingAgent: AgentDefinition = {
     const risks = supplierRisks(db, now);
     const selectedRisks = requested.length ? risks.filter((r) => requested.some((s) => s.id === r.supplier.id)) : risks;
     // A supplier-only question gets that supplier's own evidence, with no guessed material.
-    if (!material && (requested.length || /供应商.*风险|风险.*供应商/.test(input)) && isSupplierQuestion(suppliers, input)) {
+    if ((requested.length || /供应商.*风险|风险.*供应商/.test(input)) && isSupplierQuestion(suppliers, input)) {
       return {
         headline: requested.length ? `${requested.map((s) => s.name).join('、')}：供应商资料与风险` : '供应商风险概览',
         blocks: [{ title: '供应商资料', lines: selectedRisks.map((r) => `${r.supplier.name}：${r.supplier.category}，${r.supplier.region}，标准交期 ${r.supplier.leadTimeDays} 天，风险分 ${r.score}/100（${r.level}）`) }],
@@ -123,6 +123,7 @@ export const sourcingAgent: AgentDefinition = {
     }
 
     const short = materialStatus(material) !== '正常';
+    const expediteOnly = short && replenishQty(material) === 0;
     const need = short ? Math.max(replenishQty(material), material.dailyUsage * 3) : material.dailyUsage * 7;
     const ranked = normalizeQuotes(quotes, need, material.cover);
     const best = ranked[0];
@@ -132,7 +133,9 @@ export const sourcingAgent: AgentDefinition = {
         `${i + 1}. ${q.supplierName}：含税 ${q.priceWithTax.toFixed(2)} 元，采购 ${q.orderQty}，金额 ${(q.orderTotal / 10000).toFixed(2)} 万元，交期 ${q.leadTimeDays} 天，准交率 ${Math.round(q.onTimeRate * 100)}%，${q.paymentTerms}${q.flags.length ? `（${q.flags.join('；')}）` : ''}`,
     );
     const newSupplier = best.supplierId !== material.supplierId;
-    const recommend = short
+    const recommend = expediteOnly
+      ? ['库存与在途总量已覆盖目标需求，但到货前仍存在缺口；优先加急现有订单并核实排产，无需重复追加采购', '以下比价仅为应急备选，切换供应商前需核对现有采购单的加急、取消或改量方案']
+      : short
       ? [
           `${best.supplierName}：综合含税价、交期缺口与准交率排名第一${newSupplier ? '（非现供应商）' : ''}`,
           best.gapDays > 0 ? `到货前仍有约 ${Math.ceil(best.gapDays)} 天缺口，需要生产调整排产或加急` : '交期可覆盖当前库存缺口',
@@ -140,12 +143,14 @@ export const sourcingAgent: AgentDefinition = {
       : [`库存可用 ${round(material.cover, 1)} 天，高于安全天数，暂不需要追加采购；比价按一周用量 ${need} ${material.unit} 作参考`];
 
     return {
-      headline: short
+      headline: expediteOnly
+        ? `${material.code} 优先加急现有在途订单，避免重复采购`
+        : short
         ? `建议向${best.supplierName}采购 ${best.orderQty} ${material.unit} ${material.code}`
         : `${material.code} 库存充足，暂不需要追加采购`,
       blocks: [
         { title: '物料现状', lines: stock },
-        { title: `报价归一（${short ? '需求' : '参考量'} ${need} ${material.unit}）`, lines },
+        { title: `报价归一（${short && !expediteOnly ? '需求' : '参考量'} ${need} ${material.unit}）`, lines },
         { title: short ? '推荐' : '结论', lines: recommend },
         ...(requested.length ? [{ title: '指定供应商核对', lines: requested.map((s) => {
           const q = ranked.find((quote) => quote.supplierId === s.id);
@@ -161,10 +166,14 @@ export const sourcingAgent: AgentDefinition = {
       pending: [...missingQuotes.map((s) => `${s.name}暂无 ${material.code} 报价，需询价`), ...(short
         ? [...best.flags.filter((f) => f.includes('确认')), ...(newSupplier ? [`${best.supplierName}为新供应商，需完成来料质量验证`] : [])]
         : [])],
-      suggestions: short
+      suggestions: expediteOnly
+        ? [`${material.code} 先核实在途到货能否提前，并调整缺口期间的排产；替代货源作为应急备选`]
+        : short
         ? [`${material.code} 优先向${best.supplierName}下单 ${best.orderQty} ${material.unit}，现有在途订单保留`]
         : [`${material.code} 维持现有采购节奏，跟踪价格变化`],
-      actions: [...missingQuotes.map((s) => ({ title: `向${s.name}询价 ${material.code} 并核实供货资质`, owner: '供应链经理', due: isoDate(addDays(now, 2)) })), ...(short
+      actions: [...missingQuotes.map((s) => ({ title: `向${s.name}询价 ${material.code} 并核实供货资质`, owner: '供应链经理', due: isoDate(addDays(now, 2)) })), ...(expediteOnly
+        ? [{ title: `${material.code} 加急现有在途订单并核实排产，避免重复采购`, owner: '供应链经理', due: isoDate(addDays(now, 1)) }]
+        : short
         ? [
             {
               title: `确认${best.supplierName}交期与付款条件后，下达 ${material.code} 采购单 ${best.orderQty} ${material.unit}`,
@@ -192,7 +201,7 @@ export const sourcingAgent: AgentDefinition = {
             q.paymentTerms,
             q.flags.join('；') || '—',
           ]),
-          note: '排序综合含税单价、到货前缺口天数与准交率；不含税报价按 13% 增值税换算',
+          note: `排序综合含税单价、到货前缺口天数与准交率；不含税报价按 13% 增值税换算${expediteOnly ? '。本次采购量仅为应急备选比价参考，不代表追加采购建议' : ''}`,
         },
         riskTable(relevantRisks),
       ],
@@ -207,12 +216,36 @@ export const inventoryAgent: AgentDefinition = {
   description: '按库存、在途和日耗算可用天数，给出缺料预警与补货建议',
   instructions: '你负责库存与补货。可用天数、断料日期和补货量以给出的计算结果为准，延迟订单按推迟后的到货日计入；先说哪些物料有风险，再给补货建议。',
   starters: ['哪些物料快缺料了？', '本周需要补哪些货', '延迟在途单对产线有什么影响'],
-  context({ db, now }) {
-    const materials = listMaterials(db, now).sort((a, b) => a.cover - b.cover);
+  context(ctx) {
+    const { db, now, input, history } = ctx;
+    const all = listMaterials(db, now);
+    const suppliers = listSuppliers(db);
+    const unknown = unknownSuppliers(suppliers, input, all);
+    if (unknown.length) return supplierOverview(ctx, unknown);
+    const codes = materialCodes(input);
+    if (codes.some((code) => !all.some((m) => m.code === code))) return supplierOverview(ctx);
+    const requested = matchSuppliers(suppliers, input);
+    const direct = resolveMaterial(all, suppliers, input, [], new Set());
+    const overview = isInventoryOverview(input);
+    const followUp = !requested.length && !/全部|所有|哪些|概览|汇总/.test(input) && /那|这|它|呢|还/.test(input)
+      ? resolveMaterial(all, suppliers, input, history, new Set()) : null;
+    const selected = codes.length ? all.filter((m) => codes.includes(m.code)) : direct ? [direct] : followUp ? [followUp] : null;
+    // A supplier-only stock query applies to its current supplied materials, never an arbitrary SKU.
+    const supplierStock = requested.length && isSupplierInventoryQuestion(suppliers, input);
+    if (!selected && !overview && !supplierStock) return supplierOverview(ctx);
+    const materials = (selected ?? (requested.length ? all.filter((m) => requested.some((s) => s.id === m.supplierId)) : all))
+      .sort((a, b) => a.cover - b.cover);
+    if (!materials.length) {
+      return {
+        headline: `${requested.map((s) => s.name).join('、')}已收录，但没有关联的现供物料库存`,
+        blocks: [], pending: ['请补充准确料号；供应商有报价不等于已成为该物料的现供'],
+        actions: [{ title: `核实${requested.map((s) => s.name).join('、')}的供货物料并询价`, owner: '供应链经理', due: isoDate(addDays(now, 2)) }],
+      };
+    }
     const risky = materials.filter((m) => materialStatus(m) !== '正常');
     const delayed = materials.flatMap((m) => m.orders.filter((o) => o.delayDays > 0).map((o) => ({ m, o })));
     return {
-      headline: risky.length ? `${risky.length} 项物料低于安全库存，需补货` : '全部物料高于安全库存',
+      headline: risky.length ? `本次查询 ${risky.length} 项物料低于安全库存，需补货或加急` : `本次查询 ${materials.length} 项物料均高于安全库存`,
       blocks: [
         { title: '库存可用天数（由低到高）', lines: materials.map((m) => `${m.code} ${m.name}：${stockLine(m)}`) },
         {
@@ -223,12 +256,14 @@ export const inventoryAgent: AgentDefinition = {
         },
         {
           title: '补货建议',
-          lines: risky.length ? risky.map((m) => `${m.code} 建议补货 ${replenishQty(m)} ${m.unit}（${supplierName(db, m.supplierId)}）`) : ['暂无'],
+          lines: risky.length ? risky.map((m) => replenishQty(m) > 0
+            ? `${m.code} 建议补货 ${replenishQty(m)} ${m.unit}（${supplierName(db, m.supplierId)}），并核实交期能否覆盖缺口`
+            : `${m.code} 库存与在途总量已覆盖目标需求，但到货前仍存在缺口；优先加急现有订单并核实排产，无需重复追加采购`) : ['暂无'],
         },
       ],
       facts: risky.map((m) => `${m.code} ${m.name} 可用 ${round(m.cover, 1)} 天，低于安全天数 ${m.safetyDays} 天${m.stockoutDate ? `，预计 ${m.stockoutDate} 断料` : ''}`),
       actions: risky.map((m) => ({
-        title: `${m.code} 补货 ${replenishQty(m)} ${m.unit}`,
+        title: replenishQty(m) > 0 ? `${m.code} 补货 ${replenishQty(m)} ${m.unit}，确认交期覆盖缺口` : `${m.code} 加急现有在途订单并核实排产，避免重复采购`,
         owner: '供应链经理',
         due: isoDate(addDays(now, materialStatus(m) === '缺料风险' ? 1 : 3)),
       })),
@@ -245,10 +280,10 @@ export const inventoryAgent: AgentDefinition = {
             m.safetyDays,
             materialStatus(m) === '正常' ? '—' : (m.stockoutDate ?? '—'),
             materialStatus(m),
-            replenishQty(m),
+            materialStatus(m) === '正常' ? 0 : replenishQty(m),
             supplierName(db, m.supplierId),
           ]),
-          note: '可用天数按到货时间线计算：每天扣日耗，订单在（延迟后的）到货日入库',
+          note: '可用天数按到货时间线计算：每天扣日耗，订单在（延迟后的）到货日入库。建议补货量只在低于安全库存时计算；数量为0但仍有缺口时，应加急现有订单并核实排产。',
         },
       ],
       events: risky

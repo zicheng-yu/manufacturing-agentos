@@ -57,17 +57,31 @@ export function isSupplierQuestion(suppliers: Supplier[], input: string): boolea
   return remaining.length === 0;
 }
 
+export function materialCodes(text: string): string[] {
+  return [...new Set(text.toUpperCase().match(/\b(?!SUP-)[A-Z]{2,8}-\d[A-Z0-9-]*\b/g) ?? [])];
+}
+
+/** An inventory overview must not swallow an unrecognised material name. */
+export function isInventoryOverview(input: string): boolean {
+  return input.replace(/在途订单|在途单|到货时间|安全库存|库存|缺料|断料|补货|物料|产线|采购|订单|在途|到货|延迟|风险|情况|概览|影响|最近|本周|今天|当前|全部|所有|哪些|列出|查看|看看|汇总|多少|有什么|怎么|如何|是否|需要|不足|足够|紧张|快|补|货|还|那|这|它|了|的|对|有|不|吗|呢|天|我|请|帮/gi, '')
+    .replace(/[\s\p{P}\p{S}\d]/gu, '').length === 0;
+}
+
+export function isSupplierInventoryQuestion(suppliers: Supplier[], input: string): boolean {
+  return isInventoryOverview(withoutSuppliers(suppliers, input).replace(/供应商|供货|供应|供的/g, ''));
+}
+
 export function resolveMaterial(materials: Material[], suppliers: Supplier[], input: string, history: string[], prefer: Set<string>): Material | null {
   for (const text of [input, ...[...history].reverse()]) {
     const subject = withoutSuppliers(suppliers, text);
     // An explicit unknown SKU must never fall through to a category or an earlier question.
-    const codes = text.toUpperCase().match(/\b(?!SUP-)[A-Z]{2,8}-\d[A-Z0-9-]*\b/g) ?? [];
+    const codes = materialCodes(text);
     if (codes.some((code) => !materials.some((m) => m.code === code))) return null;
     const current = matchMaterial(materials, subject, prefer);
     if (current) return current;
     // Stop at an unknown subject in history as well: later follow-ups cannot revive an older topic.
     const remainder = withoutSuppliers(suppliers, text)
-      .replace(/更便宜|行不行|可不可以|怎么样|多少钱|供应商|付款条件|到货|月结|预付|余款|账期|财务|确认|审批|采购|下单|交期|报价|价格|比价|划算|合适|风险|替代|推荐|选择|换成|换|那家|这家|上面|刚才|之前|为啥|为什么|多少|多久|能否|可以|需要|是否|MOQ|如何|怎么|还|再|那|这|它|要|的|呢|吗|了|好|选|天|元|万|我|请|帮/gi, '')
+      .replace(/更便宜|行不行|可不可以|怎么样|多少钱|供应商|付款条件|安全库存|补货|补|库存|缺料|断料|在途|加急|排产|到货|月结|预付|余款|账期|财务|确认|审批|采购|下单|交期|报价|价格|比价|划算|合适|风险|替代|推荐|选择|换成|换|那家|这家|上面|刚才|之前|为啥|为什么|多少|多久|能否|可以|需要|是否|MOQ|如何|怎么|还|再|那|这|它|要|的|呢|吗|了|好|选|天|元|万|我|请|帮/gi, '')
       .replace(/[\s\p{P}\p{S}\d]/gu, '');
     if (remainder) return null;
   }

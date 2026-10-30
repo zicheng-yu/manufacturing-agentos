@@ -13,12 +13,14 @@ let env: TestEnv;
 beforeEach(() => { env = setup(); });
 afterEach(() => { env.deps.db.close(); });
 
-async function ask(question: string, conversationId?: string) {
+async function ask(question: string, conversationId?: string, agentId = 'supply.sourcing') {
   const cookie = await env.login('supply');
-  const response = await env.send('POST', '/api/agents/supply.sourcing/turns', { question, conversationId }, { Cookie: cookie });
+  const response = await env.send('POST', `/api/agents/${agentId}/turns`, { question, conversationId }, { Cookie: cookie });
   expect(response.status).toBe(200);
   return response.body as { conversation: { id: string }; turn: { id: string; result: AgentResult } };
 }
+
+const inventory = (question: string, conversationId?: string) => ask(question, conversationId, 'supply.inventory');
 
 function complaint(id: string, at = env.deps.clock()) {
   return ingestEvent(env.deps, {
@@ -99,6 +101,14 @@ describe('supply catalogue and follow-ups', () => {
       expect(response.turn.result.actions).toEqual([]);
     }
   });
+
+  it('lets an explicit supplier-risk question override the earlier sourcing topic', async () => {
+    const first = await ask('FPC-1203 有没有替代货源');
+    const response = await ask('精联风险怎么样？', first.conversation.id);
+    const table = response.turn.result.artifacts[0];
+    expect(table.title).toBe('供应商风险评分');
+    expect(table.kind === 'table' && table.rows.map((r) => r[0])).toEqual(['昆山精联电子']);
+  });
 });
 
 describe('quote normalization', () => {
@@ -116,6 +126,85 @@ describe('quote normalization', () => {
     expect(jl.priceWithTax).toBe(18.6);
     expect(jl.orderQty).toBe(2700);
     expect(ranked[0].flags.join(' ')).toContain('财务确认');
+  });
+});
+
+describe('inventory selection and purchasing actions', () => {
+  it('limits inventory, actions and derived events to the requested material', async () => {
+    env.deps.db.prepare("UPDATE supply_materials SET on_hand = 0 WHERE code = 'FPC-1203'").run();
+    const response = await inventory('光学胶库存怎么样？');
+    const table = response.turn.result.artifacts[0];
+    expect(table.kind === 'table' && table.rows.map((r) => r[0])).toEqual(['OCA-0300']);
+    expect(response.turn.result.eventIds).toEqual([]);
+    expect(response.turn.result.actions).toEqual([]);
+    expect(response.turn.result.answer).not.toContain('FPC-1203');
+  });
+
+  it('does not replace an unknown material with a whole-catalogue stock answer or emit unrelated risks', async () => {
+    for (const question of ['MLCC 电容库存还有多少？', 'FPC-9999 库存', '新星电子供的物料库存']) {
+      const response = await inventory(question);
+      expect(response.turn.result.title).toContain('未收录');
+      expect(response.turn.result.artifacts.every((a) => a.title !== '补货建议单')).toBe(true);
+      expect(response.turn.result.eventIds).toEqual([]);
+      expect(response.turn.result.actions.some((a) => a.title.includes('询价'))).toBe(true);
+    }
+  });
+
+  it('keeps a material follow-up scoped and lets an explicit overview reset that scope', async () => {
+    const first = await inventory('柔性板库存');
+    const follow = await inventory('那还需要补多少？', first.conversation.id);
+    const scoped = follow.turn.result.artifacts[0];
+    expect(scoped.kind === 'table' && scoped.rows.map((r) => r[0])).toEqual(['FPC-1203']);
+    const overview = await inventory('请列出所有物料库存', first.conversation.id);
+    const table = overview.turn.result.artifacts[0];
+    expect(table.kind === 'table' && table.rows.length).toBe(9);
+  });
+
+  it('keeps all three existing inventory starters working as catalogue overviews', async () => {
+    for (const question of ['哪些物料快缺料了？', '本周需要补哪些货', '延迟在途单对产线有什么影响']) {
+      const response = await inventory(question);
+      const table = response.turn.result.artifacts[0];
+      expect(table.kind === 'table' && table.rows.length).toBe(9);
+    }
+  });
+
+  it('shows every explicit known SKU and rejects a request containing an unknown SKU', async () => {
+    const response = await inventory('fpc-1203 和 DIC-0870 的库存');
+    const table = response.turn.result.artifacts[0];
+    expect(table.kind === 'table' && table.rows.map((r) => r[0]).sort()).toEqual(['DIC-0870', 'FPC-1203']);
+    const unknown = await inventory('FPC-1203 和 FPC-9999 的库存');
+    expect(unknown.turn.result.title).toContain('未收录');
+    expect(unknown.turn.result.eventIds).toEqual([]);
+  });
+
+  it('filters supplier stock by its current materials and distinguishes quote-only suppliers', async () => {
+    const first = await inventory('驱动芯片库存');
+    const response = await inventory('那精联供的物料库存呢？', first.conversation.id);
+    const table = response.turn.result.artifacts[0];
+    expect(table.kind === 'table' && table.rows.map((r) => r[0]).sort()).toEqual(['FPC-1025', 'FPC-1203']);
+    const quoteOnly = await inventory('德源库存');
+    expect(quoteOnly.turn.result.title).toContain('没有关联的现供物料');
+    expect(quoteOnly.turn.result.artifacts).toEqual([]);
+  });
+
+  it('expedites already sufficient late orders instead of creating a zero-quantity purchase', async () => {
+    env.deps.db.prepare("UPDATE supply_orders SET qty = 10000, eta = ?, delay_days = 7, status = '延迟' WHERE id = 'PO-2611'")
+      .run(addDays(env.deps.clock(), 8).toISOString().slice(0, 10));
+    const response = await inventory('FPC-1203 库存和补货');
+    expect(response.turn.result.answer).toContain('无需重复追加采购');
+    expect(response.turn.result.actions[0].title).toContain('加急现有在途订单');
+    expect(response.turn.result.actions.every((a) => !/补货 0\b/.test(a.title))).toBe(true);
+    const sourcing = await ask('FPC-1203 有没有替代货源');
+    expect(sourcing.turn.result.title).toContain('避免重复采购');
+    expect(sourcing.turn.result.actions.some((a) => a.title.includes('加急'))).toBe(true);
+    expect(sourcing.turn.result.actions.every((a) => !a.title.includes('下达'))).toBe(true);
+  });
+
+  it('does not display a purchase quantity for healthy inventory or create purchase tasks', async () => {
+    const response = await inventory('光学胶库存');
+    const table = response.turn.result.artifacts[0];
+    expect(table.kind === 'table' && table.rows[0][7]).toBe(0);
+    expect(response.turn.result.actions).toEqual([]);
   });
 });
 
