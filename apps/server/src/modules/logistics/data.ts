@@ -1,5 +1,4 @@
 import type { DB, Row } from '../../db.ts';
-import { addMinutes } from '../../core/util.ts';
 
 export interface Station {
   id: string;
@@ -60,35 +59,34 @@ export function recordMetrics(db: DB, input: MetricsInput, now: Date): void {
   );
 }
 
-/** Totals per station over the last `minutes`; backlog is the latest reading. */
-export function stationStats(db: DB, now: Date, minutes = 60): StationStats[] {
-  const since = addMinutes(now, -minutes).toISOString();
-  const rows = db
-    .prepare(
-      `SELECT station_id,
-         SUM(recognitions) AS recognitions, SUM(recognition_failures) AS recognition_failures,
-         SUM(picks) AS picks, SUM(pick_failures) AS pick_failures,
-         SUM(placements) AS placements, SUM(placement_invalid) AS placement_invalid,
-         AVG(cycle_time_s) AS cycle_time,
-         (SELECT backlog FROM logistics_metrics m2 WHERE m2.station_id = m.station_id ORDER BY ts DESC LIMIT 1) AS backlog
-       FROM logistics_metrics m WHERE ts >= ? GROUP BY station_id`,
-    )
-    .all(since) as Row[];
-  const byStation = new Map(rows.map((r) => [String(r.station_id), r]));
+/**
+ * Totals per station over its most recent `readings` reports (the bridge reports every few minutes), so the board
+ * stays meaningful however long ago the simulation last ran. Backlog is the latest reading.
+ */
+export function stationStats(db: DB, readings = 6): StationStats[] {
   return listStations(db).map((s) => {
-    const r = byStation.get(s.id);
+    const rows = db
+      .prepare('SELECT * FROM logistics_metrics WHERE station_id = ? ORDER BY ts DESC, id DESC LIMIT ?')
+      .all(s.id, readings) as Row[];
+    const sum = (field: string) => rows.reduce((acc, r) => acc + Number(r[field] ?? 0), 0);
+    const cycles = rows.map((r) => r.cycle_time_s).filter((v): v is number => v !== null && v !== undefined).map(Number);
     return {
       station: s.id,
-      recognitions: Number(r?.recognitions ?? 0),
-      recognitionFailures: Number(r?.recognition_failures ?? 0),
-      picks: Number(r?.picks ?? 0),
-      pickFailures: Number(r?.pick_failures ?? 0),
-      placements: Number(r?.placements ?? 0),
-      placementInvalid: Number(r?.placement_invalid ?? 0),
-      avgCycleTime: r?.cycle_time == null ? null : Number(r.cycle_time),
-      backlog: Number(r?.backlog ?? 0),
+      recognitions: sum('recognitions'),
+      recognitionFailures: sum('recognition_failures'),
+      picks: sum('picks'),
+      pickFailures: sum('pick_failures'),
+      placements: sum('placements'),
+      placementInvalid: sum('placement_invalid'),
+      avgCycleTime: cycles.length ? cycles.reduce((a, b) => a + b, 0) / cycles.length : null,
+      backlog: rows.length ? Number(rows[0].backlog ?? 0) : 0,
     };
   });
+}
+
+/** The station with the lowest pick success in its latest report, if any station picks. */
+export function worstStation(stats: StationStats[]): StationStats | null {
+  return stats.filter((s) => s.picks > 0).sort((a, b) => (a.picks - a.pickFailures) / a.picks - (b.picks - b.pickFailures) / b.picks)[0] ?? null;
 }
 
 export function totals(stats: StationStats[]) {

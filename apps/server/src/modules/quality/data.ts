@@ -4,6 +4,8 @@ import { keywordScore } from '../../core/util.ts';
 export interface QualityCase {
   id: string;
   title: string;
+  /** Plain words people use for the symptom, e.g. 起泡 for 偏光片气泡. */
+  keywords: string;
   product: string;
   category: string;
   symptom: string;
@@ -40,6 +42,7 @@ export function listCases(db: DB): QualityCase[] {
   return (db.prepare('SELECT * FROM quality_cases ORDER BY closed_at DESC').all() as Row[]).map((r) => ({
     id: String(r.id),
     title: String(r.title),
+    keywords: String(r.keywords ?? ''),
     product: String(r.product),
     category: String(r.category),
     symptom: String(r.symptom),
@@ -81,13 +84,17 @@ export function isOverdue(capa: Capa, today: string): boolean {
   return capa.status !== '已完成' && capa.due < today;
 }
 
-/** Rank historical cases against a symptom description. Same category counts most; product names are ignored. */
+/**
+ * Rank historical cases against a symptom description. Same category counts most, then the case's plain-word
+ * keywords; product names are ignored.
+ */
 export function similarCases(db: DB, query: string, category?: string): { case: QualityCase; score: number }[] {
   return listCases(db)
     .map((c) => ({
       case: c,
       score:
         (category && c.category === category ? 20 : 0) +
+        8 * c.keywords.split(/\s+/).filter((k) => k && query.includes(k)).length +
         keywordScore(query, `${c.title} ${c.category} ${c.symptom} ${c.rootCause}`),
     }))
     .filter((r) => r.score >= 6)

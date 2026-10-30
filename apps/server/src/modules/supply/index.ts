@@ -15,7 +15,7 @@ export const supplyModule: DomainModule = {
       rating TEXT NOT NULL, lead_time_days INTEGER NOT NULL, on_time_rate REAL NOT NULL, note TEXT NOT NULL DEFAULT ''
     );
     CREATE TABLE IF NOT EXISTS supply_materials (
-      code TEXT PRIMARY KEY, name TEXT NOT NULL, category TEXT NOT NULL, unit TEXT NOT NULL, line TEXT NOT NULL,
+      code TEXT PRIMARY KEY, name TEXT NOT NULL, aliases TEXT NOT NULL DEFAULT '', category TEXT NOT NULL, unit TEXT NOT NULL, line TEXT NOT NULL,
       on_hand INTEGER NOT NULL, daily_usage INTEGER NOT NULL, safety_days INTEGER NOT NULL,
       supplier_id TEXT NOT NULL, unit_price REAL NOT NULL
     );
@@ -34,9 +34,9 @@ export const supplyModule: DomainModule = {
 
   eventTypes: [
     { type: 'inbound_delay', label: '到货延迟', severity: 'warn', dedupeFields: ['orderId'] },
-    { type: 'stockout_risk', label: '缺料风险', severity: 'critical', dedupeFields: ['materialCode'] },
-    { type: 'price_increase', label: '价格上涨', severity: 'info', dedupeFields: ['materialCode'] },
-    { type: 'supplier_risk', label: '供应商风险', severity: 'warn', dedupeFields: ['supplierId'] },
+    { type: 'stockout_risk', label: '缺料风险', severity: 'critical', kind: 'state', dedupeFields: ['materialCode'] },
+    { type: 'price_increase', label: '价格上涨', severity: 'info', kind: 'state', dedupeFields: ['materialCode'] },
+    { type: 'supplier_risk', label: '供应商风险', severity: 'warn', kind: 'state', dedupeFields: ['supplierId'] },
   ],
 
   signalRules: [
@@ -55,6 +55,7 @@ export const supplyModule: DomainModule = {
         impact: '在途延迟叠加会压缩可用库存天数，可能影响本周交付',
         owner: '供应链经理牵头，生产、品质配合',
         dueHours: 24,
+        weight: 2,
       },
     },
     {
@@ -73,6 +74,7 @@ export const supplyModule: DomainModule = {
         impact: '缺料将直接导致产线停线',
         owner: '供应链经理',
         dueHours: 8,
+        weight: 3,
       },
     },
     {
@@ -90,12 +92,13 @@ export const supplyModule: DomainModule = {
         impact: '材料成本上升压缩项目毛利',
         owner: '供应链经理与财务',
         dueHours: 72,
+        weight: 1,
       },
     },
   ],
 
-  situation({ db, signals }) {
-    const materials = listMaterials(db);
+  situation({ db, now, signals }) {
+    const materials = listMaterials(db, now);
     const low = materials.filter((m) => materialStatus(m) !== '正常');
     const delayed = listOrders(db).filter((o) => o.delayDays > 0);
     const level: Level = signals.some((s) => s.severity === 'critical')
@@ -116,8 +119,8 @@ export const supplyModule: DomainModule = {
     };
   },
 
-  overview({ db }) {
-    const materials = listMaterials(db);
+  overview({ db, now }) {
+    const materials = listMaterials(db, now);
     const orders = listOrders(db);
     const suppliers = db.prepare('SELECT * FROM supply_suppliers ORDER BY category, name').all() as Record<string, unknown>[];
     return {
@@ -143,7 +146,7 @@ export const supplyModule: DomainModule = {
             m.safetyDays,
             materialStatus(m),
           ]),
-          note: '可用天数 = （库存 + 按期在途）÷ 日耗',
+          note: '可用天数按到货时间线计算：每天扣日耗，订单在（延迟后的）到货日入库',
         },
         {
           kind: 'table',
@@ -181,14 +184,22 @@ export const supplyModule: DomainModule = {
       eta,
       orderId,
     );
-    const material = listMaterials(db).find((m) => m.code === order.materialCode);
+    const material = listMaterials(db, now).find((m) => m.code === order.materialCode);
     if (material && materialStatus(material) === '缺料风险') {
       emit({
         domain: 'supply',
         type: 'stockout_risk',
         title: `${material.name} 缺料风险`,
-        summary: `${orderId} 延迟 ${delayDays} 天后，${material.line} ${material.name} 可用 ${round(coverDays(material), 1)} 天，低于安全天数 ${material.safetyDays} 天`,
-        payload: { materialCode: material.code, materialName: material.name, line: material.line, coverDays: round(coverDays(material), 1) },
+        summary: `${orderId} 延迟 ${delayDays} 天后，${material.line} ${material.name} 可用 ${round(coverDays(material), 1)} 天，低于安全天数 ${material.safetyDays} 天，预计 ${material.stockoutDate} 断料`,
+        payload: {
+          materialCode: material.code,
+          materialName: material.name,
+          line: material.line,
+          coverDays: round(coverDays(material), 1),
+          stockoutDate: material.stockoutDate,
+          orderId,
+          delayDays,
+        },
         source: { channel: event.source.channel, actor: '库存规则' },
         at: now,
       });

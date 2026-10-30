@@ -90,7 +90,7 @@ describe('event bridge', () => {
     expect(signal.title).toBe('码垛-02 抓取连续失败');
     expect(signal.severity).toBe('critical');
 
-    env.advance(31);
+    env.advance(61);
     await env.bridge('/api/bridge/events', { type: 'recognition_failed', station: '识别-01' });
     expect(listSignals(env.deps, ['logistics']).find((s) => s.id === signal.id)).toBeUndefined();
   });
@@ -174,6 +174,11 @@ describe('agents', () => {
 
   it('writes facts to shared memory and tasks, and deleting the turn removes them', async () => {
     const env = setup();
+    await env.bridge('/api/bridge/events', {
+      domain: 'supply',
+      type: 'inbound_delay',
+      payload: { orderId: 'PO-2611', materialCode: 'FPC-1203', delayDays: 3 },
+    });
     const account = (await env.get('/api/session', await env.login('chairman'))).body.account;
     const { turn } = await runTurn(env.deps, { account, agentId: 'supply.inventory', question: '哪些物料快缺料了？' });
     const memory = listMemory(env.deps.db, ['supply']).filter((m) => m.turnId === turn.id);
@@ -202,6 +207,71 @@ describe('agents', () => {
   });
 });
 
+describe('fixes from the demo case review', () => {
+  it('keeps a re-observed condition as one event without inflating its count or summary', () => {
+    const env = setup();
+    const first = ingestEvent(env.deps, {
+      domain: 'supply',
+      type: 'stockout_risk',
+      summary: 'PO-2611 延迟 3 天后可用 1.7 天',
+      payload: { materialCode: 'FPC-1203' },
+      source: { channel: 'bridge' },
+    });
+    env.advance(30);
+    const again = ingestEvent(env.deps, {
+      domain: 'supply',
+      type: 'stockout_risk',
+      summary: '可用 1.7 天',
+      payload: { materialCode: 'FPC-1203' },
+      source: { channel: 'agent' },
+    });
+    expect(again.event.id).toBe(first.event.id);
+    expect(again.event.count).toBe(1);
+    expect(again.event.summary).toBe('PO-2611 延迟 3 天后可用 1.7 天');
+  });
+
+  it('follows the material through a follow-up and says when a material is not in the catalogue', async () => {
+    const env = setup();
+    const cookie = await env.login('chairman');
+    const ask = (question: string, conversationId?: string) =>
+      env.send('POST', '/api/agents/supply.sourcing/turns', { question, conversationId }, { Cookie: cookie });
+    const first = await ask('柔性板快断货了，几家供应商怎么选？');
+    expect(first.body.turn.result.artifacts[0].title).toBe('FPC-1203 比价表');
+    const followUp = await ask('东莞德源要预付 30%，换无锡信创行不行？', first.body.conversation.id);
+    expect(followUp.body.turn.result.artifacts[0].title).toBe('FPC-1203 比价表');
+    const unknown = await ask('MLCC 电容有没有更便宜的货源？');
+    expect(unknown.body.turn.result.artifacts[0].title).toBe('合格供应商');
+    const chips = await ask('驱动芯片找哪家买最划算？');
+    expect(chips.body.turn.result.artifacts[0].title).toBe('DIC-0870 比价表');
+    // Driver ICs are not short once the delayed order is counted, so no purchase is pushed.
+    expect(chips.body.turn.result.actions).toHaveLength(0);
+  });
+
+  it('finds quality cases from plain words and keeps corrective-action questions off the 8D', async () => {
+    const env = setup();
+    const cookie = await env.login('quality');
+    const blister = await env.send('POST', '/api/agents/quality.complaint/turns', { question: '仪表屏边上起泡了，以前怎么处理' }, { Cookie: cookie });
+    expect(blister.body.turn.result.artifacts[0].rows[0][0]).toBe('QC-2025-011');
+    const overdue = await env.send('POST', '/api/agents/quality.capa/turns', { question: '哪些整改项逾期了？' }, { Cookie: cookie });
+    expect(overdue.body.turn.result.artifacts[0].title).toBe('8D 整改项');
+  });
+
+  it('answers HR follow-ups from the earlier question and routes uncovered ones to a person', async () => {
+    const env = setup();
+    const cookie = await env.login('hr');
+    const first = await env.send('POST', '/api/agents/hr.service/turns', { question: '年假有几天' }, { Cookie: cookie });
+    const followUp = await env.send(
+      'POST',
+      '/api/agents/hr.service/turns',
+      { question: '我入职 3 年了呢', conversationId: first.body.conversation.id },
+      { Cookie: cookie },
+    );
+    expect(followUp.body.turn.result.title).toContain('年休假');
+    const proof = await env.send('POST', '/api/agents/hr.service/turns', { question: '需要开具收入证明用于房贷' }, { Cookie: cookie });
+    expect(proof.body.turn.result.actions[0].owner).toBe('HR 经理');
+  });
+});
+
 describe('demo storyline', () => {
   it('ripples from one station into a chairman briefing across all four modules', async () => {
     const env = setup();
@@ -219,8 +289,13 @@ describe('demo storyline', () => {
     expect(briefing.status).toBe(200);
     const result = briefing.body.turn.result;
     expect(result.artifacts[0].rows).toHaveLength(3);
-    expect(result.artifacts[0].rows[0][5]).toContain('码垛-02');
-    expect(result.facts.some((f: string) => f.startsWith('FPC-1203 同时出现在'))).toBe(true);
+    // Business-level decisions lead; the station fault is a supervisor's call.
+    expect(result.artifacts[0].rows[0][5]).toContain('FPC');
+    expect(result.artifacts[0].rows.some((r: string[]) => r[5].includes('码垛-02'))).toBe(false);
+    const fpc = result.facts.find((f: string) => f.startsWith('FPC-1203：'));
+    expect(fpc).toContain('智能物流「入库暂存区积压 46 箱」');
+    expect(fpc).toContain('品质「');
+    expect(result.facts.some((f: string) => f.includes('可用 1.7 天'))).toBe(true);
     expect(result.facts.some((f: string) => f.includes('供应链部减员预警与供应链风险叠加'))).toBe(true);
 
     const after = await env.get<Cockpit>('/api/cockpit', cookie);

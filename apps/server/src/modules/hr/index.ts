@@ -36,10 +36,11 @@ export const hrModule: DomainModule = {
       type: 'attrition_risk',
       label: '离职预警',
       severity: 'warn',
+      kind: 'state',
       dedupeFields: ['employeeName'],
       hiddenFields: { supply_mgr: PRIVATE_FIELDS, quality_mgr: PRIVATE_FIELDS, logistics_mgr: PRIVATE_FIELDS },
     },
-    { type: 'critical_vacancy', label: '关键岗位空缺', severity: 'warn', dedupeFields: ['positionId'] },
+    { type: 'critical_vacancy', label: '关键岗位空缺', severity: 'warn', kind: 'state', dedupeFields: ['positionId'] },
     { type: 'service_backlog', label: '员工服务积压', severity: 'info' },
   ],
 
@@ -60,6 +61,7 @@ export const hrModule: DomainModule = {
         impact: '关键岗位断档会放大供应与交付风险',
         owner: 'HR 经理与用人部门负责人',
         dueHours: 48,
+        weight: 2,
       },
     },
     {
@@ -77,6 +79,7 @@ export const hrModule: DomainModule = {
         impact: '关键岗位长期空缺会拖慢相关部门的工作',
         owner: 'HR 经理',
         dueHours: 72,
+        weight: 1,
       },
     },
   ],

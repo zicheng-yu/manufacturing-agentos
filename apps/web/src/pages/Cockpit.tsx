@@ -86,7 +86,8 @@ function DecisionCards({ table }: { table: TableArtifact }) {
 function Briefing({ turn, onRun, running, executive }: { turn: Turn | null; onRun: () => void; running: boolean; executive: boolean }) {
   const [expanded, setExpanded] = useState(false);
   const decisions = turn?.result.artifacts.find((a) => a.title === '今日决策简报');
-  const links = turn?.result.facts.filter((f) => /同时出现在|叠加/.test(f)) ?? [];
+  // Link facts read "FPC-1203：供应链「…」；品质「…」" or mention 叠加; per-signal details start with a module name.
+  const links = turn?.result.facts.filter((f) => /^[^「]+：.*「|叠加/.test(f)) ?? [];
   return (
     <Card
       title={

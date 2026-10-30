@@ -9,8 +9,8 @@ export const serviceAgent: AgentDefinition = {
   description: '基于制度库回答考勤、假期、社保、报销等高频问题，答不了的转人工',
   instructions: '你负责员工服务问答。只依据制度库原文回答并注明制度编号；制度库没有覆盖的问题不要推测，写进 pending 并建议转 HR 人工处理。',
   starters: ['年假有几天？没休完怎么办', '出差住宿报销标准是多少', '异地就医备案怎么办理'],
-  context({ now, input, db }) {
-    const hits = searchPolicies(db, input).slice(0, 2);
+  context({ now, input, history, db }) {
+    const hits = searchPolicies(db, input, history).slice(0, 2);
     if (hits.length === 0) {
       return {
         headline: '制度库未覆盖该问题，已转 HR 人工处理',
@@ -32,7 +32,8 @@ export const orgAgent: AgentDefinition = {
   module: 'hr',
   name: '招聘与组织助手',
   description: '编制与在岗、关键岗位招聘进度、离职预警',
-  instructions: '你负责招聘与组织健康。先说关键岗位与减员风险，再给招聘优先级建议；涉及员工个人信息时只在必要时提及。',
+  instructions:
+    '你负责招聘与组织健康。先说关键岗位与减员风险，再给招聘优先级建议。员工姓名与离职原因不对外提供，也不得猜测原因；被问到时说明请联系 HR 经理。',
   starters: ['哪些关键岗位还空着？', '供应链部的人员情况', '本月组织健康怎么样'],
   context({ db, now }) {
     const today = isoDate(now);
@@ -53,7 +54,7 @@ export const orgAgent: AgentDefinition = {
             : ['无'],
         },
         {
-          title: '30 天离职预警',
+          title: '30 天离职预警（姓名与原因不在此展示）',
           lines: attrition.length ? attrition.map((a) => `${a.department} ${a.position}（${a.reportedAt}）`) : ['无'],
         },
       ],

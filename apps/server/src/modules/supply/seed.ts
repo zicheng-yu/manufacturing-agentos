@@ -16,15 +16,15 @@ const SUPPLIERS = [
 ] as const;
 
 const MATERIALS = [
-  ['FPC-1203', 'FPC 柔性电路板（12.3 英寸中控屏）', 'FPC', '片', 'L1 中控屏线', 1500, 900, 3, 'SUP-JL', 18.6],
-  ['GLS-1230', 'TFT 玻璃基板（12.3 英寸）', '玻璃基板', '片', 'L1 中控屏线', 5200, 850, 5, 'SUP-HG', 96.0],
-  ['BLU-1230', '背光模组（12.3 英寸）', '背光', '套', 'L1 中控屏线', 2600, 880, 4, 'SUP-BL', 42.5],
-  ['FRM-1230', '铝合金背框（12.3 英寸）', '结构件', '件', 'L1 中控屏线', 3100, 900, 3, 'SUP-JM', 23.8],
-  ['DIC-0870', '显示驱动 IC', '芯片', '颗', 'L1/L2 共用', 5200, 1500, 5, 'SUP-XP', 11.2],
-  ['FPC-1025', 'FPC 柔性电路板（10.25 英寸仪表屏）', 'FPC', '片', 'L2 仪表屏线', 2400, 650, 3, 'SUP-JL', 15.4],
-  ['POL-1025', '偏光片（10.25 英寸）', '偏光片', '片', 'L2 仪表屏线', 4100, 700, 4, 'SUP-GM', 8.9],
-  ['OCA-0300', '光学胶 OCA 0.3mm', '辅料', '片', 'L1/L2 共用', 9000, 1200, 5, 'SUP-GM', 3.2],
-  ['KLT-4314', 'KLT 周转料箱 4314', '物流器具', '个', '厂内物流', 320, 20, 10, 'SUP-ZX', 46.0],
+  ['FPC-1203', 'FPC 柔性电路板（12.3 英寸中控屏）', '柔性板 柔性电路 软板 排线', 'FPC', '片', 'L1 中控屏线', 1530, 900, 3, 'SUP-JL', 18.6],
+  ['GLS-1230', 'TFT 玻璃基板（12.3 英寸）', '玻璃 基板', '玻璃基板', '片', 'L1 中控屏线', 5200, 850, 5, 'SUP-HG', 96.0],
+  ['BLU-1230', '背光模组（12.3 英寸）', '背光 灯板', '背光', '套', 'L1 中控屏线', 3200, 880, 4, 'SUP-BL', 42.5],
+  ['FRM-1230', '铝合金背框（12.3 英寸）', '背框 铝框 结构件', '结构件', '件', 'L1 中控屏线', 3100, 900, 3, 'SUP-JM', 23.8],
+  ['DIC-0870', '显示驱动 IC', '驱动芯片 驱动IC 芯片', '芯片', '颗', 'L1/L2 共用', 5200, 1500, 5, 'SUP-XP', 11.2],
+  ['FPC-1025', 'FPC 柔性电路板（10.25 英寸仪表屏）', '仪表', 'FPC', '片', 'L2 仪表屏线', 2400, 650, 3, 'SUP-JL', 15.4],
+  ['POL-1025', '偏光片（10.25 英寸）', '偏光', '偏光片', '片', 'L2 仪表屏线', 4100, 700, 4, 'SUP-GM', 8.9],
+  ['OCA-0300', '光学胶 OCA 0.3mm', '光学胶', '辅料', '片', 'L1/L2 共用', 9000, 1200, 5, 'SUP-GM', 3.2],
+  ['KLT-4314', 'KLT 周转料箱 4314', '料箱 周转箱', '物流器具', '个', '厂内物流', 320, 20, 10, 'SUP-ZX', 46.0],
 ] as const;
 
 export function seedSupply({ db, now }: ModuleCtx): void {
@@ -34,8 +34,8 @@ export function seedSupply({ db, now }: ModuleCtx): void {
   for (const s of SUPPLIERS) supplier.run(...s);
 
   const material = db.prepare(
-    `INSERT INTO supply_materials (code, name, category, unit, line, on_hand, daily_usage, safety_days, supplier_id, unit_price)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO supply_materials (code, name, aliases, category, unit, line, on_hand, daily_usage, safety_days, supplier_id, unit_price)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   for (const m of MATERIALS) material.run(...m);
 
@@ -43,7 +43,7 @@ export function seedSupply({ db, now }: ModuleCtx): void {
     'INSERT INTO supply_orders (id, material_code, supplier_id, qty, eta, delay_days, status) VALUES (?, ?, ?, ?, ?, ?, ?)',
   );
   const day = (n: number) => isoDate(addDays(now, n));
-  order.run('PO-2611', 'FPC-1203', 'SUP-JL', 3000, day(2), 0, '在途');
+  order.run('PO-2611', 'FPC-1203', 'SUP-JL', 3000, day(1), 0, '在途');
   order.run('PO-2608', 'GLS-1230', 'SUP-HG', 4000, day(4), 0, '在途');
   order.run('PO-2609', 'BLU-1230', 'SUP-BL', 3000, day(3), 0, '在途');
   order.run('PO-2603', 'DIC-0870', 'SUP-XP', 6000, day(1), 0, '在途');

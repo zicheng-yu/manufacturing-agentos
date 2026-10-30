@@ -79,28 +79,37 @@ export function ingestEvent(deps: Deps, input: EventInput): { event: AgentOSEven
     input.dedupeKey ??
     [input.domain, input.type, input.source.station ?? '', ...(definition.dedupeFields ?? []).map((f) => String(payload[f] ?? ''))].join(':');
 
-  const duplicate = deps.db
-    .prepare(
-      `SELECT * FROM events WHERE dedupe_key = ? AND status != 'resolved' AND last_seen_at >= ?
-       ORDER BY last_seen_at DESC LIMIT 1`,
-    )
-    .get(dedupeKey, addMinutes(at, -DEDUPE_MINUTES).toISOString()) as Row | undefined;
+  const isState = definition.kind === 'state';
+  const duplicate = (
+    isState
+      ? deps.db
+          .prepare(`SELECT * FROM events WHERE dedupe_key = ? AND status != 'resolved' ORDER BY last_seen_at DESC LIMIT 1`)
+          .get(dedupeKey)
+      : deps.db
+          .prepare(
+            `SELECT * FROM events WHERE dedupe_key = ? AND status != 'resolved' AND last_seen_at >= ?
+             ORDER BY last_seen_at DESC LIMIT 1`,
+          )
+          .get(dedupeKey, addMinutes(at, -DEDUPE_MINUTES).toISOString())
+  ) as Row | undefined;
 
   let id: string;
   if (duplicate) {
     id = String(duplicate.id);
-    const merged = { ...parseJson<Record<string, unknown>>(duplicate.payload_json, {}), ...payload };
+    const previous = parseJson<Record<string, unknown>>(duplicate.payload_json, {});
+    // An agent re-observing a condition must not overwrite what the original reporter said.
+    const keep = isState && input.source.channel === 'agent' && parseJson<EventSource>(duplicate.source_json, { channel: 'manual' }).channel !== 'agent';
     deps.db
       .prepare(
         `UPDATE events SET count = count + ?, severity = ?, title = ?, summary = ?, payload_json = ?, last_seen_at = ?
          WHERE id = ?`,
       )
       .run(
-        count,
+        isState ? 0 : count,
         maxSeverity(duplicate.severity as Severity, severity),
-        title,
-        summary || String(duplicate.summary),
-        JSON.stringify(merged),
+        keep ? String(duplicate.title) : title,
+        keep || !summary ? String(duplicate.summary) : summary,
+        JSON.stringify(keep ? { ...payload, ...previous } : { ...previous, ...payload }),
         at.toISOString(),
         id,
       );

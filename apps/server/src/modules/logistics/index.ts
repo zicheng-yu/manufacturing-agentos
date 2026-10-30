@@ -5,7 +5,7 @@ import { requireBridgeToken } from '../../core/bridge.ts';
 import type { DomainModule } from '../../core/module.ts';
 import { percent, round } from '../../core/util.ts';
 import { siteAgent } from './agents.ts';
-import { listStations, recordMetrics, stationStats, totals } from './data.ts';
+import { listStations, recordMetrics, stationStats, totals, worstStation } from './data.ts';
 import { logisticsSeedEvents, seedLogistics } from './seed.ts';
 
 const count = z.number().int().min(0).optional();
@@ -49,63 +49,64 @@ export const logisticsModule: DomainModule = {
     { type: 'recognition_failed', label: '料箱识别失败', severity: 'warn' },
     { type: 'grasp_failed', label: '抓取失败', severity: 'warn' },
     { type: 'placement_invalid', label: '放置不合规', severity: 'warn' },
-    { type: 'backlog_high', label: '入库积压', severity: 'warn' },
-    { type: 'station_down', label: '工位停机', severity: 'critical' },
+    { type: 'backlog_high', label: '入库积压', severity: 'warn', kind: 'state' },
+    { type: 'station_down', label: '工位停机', severity: 'critical', kind: 'state' },
   ],
 
   signalRules: [
     {
       id: 'logistics-grasp',
       types: ['grasp_failed'],
-      windowMinutes: 30,
+      windowMinutes: 60,
       threshold: 3,
       severity: 'critical',
       groupBy: stationGroup,
       describe: (events, station) => ({
         title: `${station} 抓取连续失败`,
-        summary: `30 分钟内抓取失败 ${events.reduce((s, e) => s + e.count, 0)} 次；${events.at(-1)!.summary}`,
+        summary: `60 分钟内抓取失败 ${events.reduce((s, e) => s + e.count, 0)} 次；${events.at(-1)!.summary}`,
       }),
       playbook: {
         decision: '批准故障码垛工位转人工辅助，并安排设备与视觉复检',
         impact: '码垛停滞造成入库积压，进而影响产线供料',
         owner: '物流主管',
         dueHours: 4,
+        weight: 1,
       },
     },
     {
       id: 'logistics-recognition',
       types: ['recognition_failed'],
-      windowMinutes: 30,
+      windowMinutes: 60,
       threshold: 3,
       severity: 'warn',
       groupBy: stationGroup,
       describe: (events, station) => ({
         title: `${station} 料箱识别异常`,
-        summary: `30 分钟内识别失败 ${events.reduce((s, e) => s + e.count, 0)} 次`,
+        summary: `60 分钟内识别失败 ${events.reduce((s, e) => s + e.count, 0)} 次`,
       }),
-      playbook: { decision: '安排视觉系统复检与补光调整', impact: '识别失败的料箱需人工复核，拉长节拍', owner: '物流主管', dueHours: 8 },
+      playbook: { decision: '安排视觉系统复检与补光调整', impact: '识别失败的料箱需人工复核，拉长节拍', owner: '物流主管', dueHours: 8, weight: 1 },
     },
     {
       id: 'logistics-placement',
       types: ['placement_invalid'],
-      windowMinutes: 30,
+      windowMinutes: 60,
       threshold: 2,
       severity: 'warn',
       groupBy: stationGroup,
       describe: (events, station) => ({
         title: `${station} 放置不合规`,
-        summary: `30 分钟内放置检查不通过 ${events.reduce((s, e) => s + e.count, 0)} 次`,
+        summary: `60 分钟内放置检查不通过 ${events.reduce((s, e) => s + e.count, 0)} 次`,
       }),
-      playbook: { decision: '核对码垛规则并复检已码放料箱', impact: '码放不合规有倒垛与物料损伤风险', owner: '物流主管', dueHours: 8 },
+      playbook: { decision: '核对码垛规则并复检已码放料箱', impact: '码放不合规有倒垛与物料损伤风险', owner: '物流主管', dueHours: 8, weight: 1 },
     },
     {
       id: 'logistics-backlog',
       types: ['backlog_high'],
-      windowMinutes: 60,
+      windowMinutes: 120,
       threshold: 1,
       severity: 'warn',
       describe: (events) => ({ title: '入库暂存区积压', summary: events.at(-1)!.summary }),
-      playbook: { decision: '批准入库改道与临时人工搬运', impact: '积压物料无法及时上线，产线可能缺料', owner: '物流主管与供应链经理', dueHours: 4 },
+      playbook: { decision: '批准入库改道与临时人工搬运', impact: '积压物料无法及时上线，产线可能缺料', owner: '物流主管与供应链经理', dueHours: 4, weight: 2 },
     },
     {
       id: 'logistics-down',
@@ -115,35 +116,40 @@ export const logisticsModule: DomainModule = {
       severity: 'critical',
       groupBy: stationGroup,
       describe: (events, station) => ({ title: `${station} 停机`, summary: events.at(-1)!.summary }),
-      playbook: { decision: '确认停机工位的抢修时限与任务改派', impact: '工位停机直接降低厂内物流产能', owner: '物流主管', dueHours: 2 },
+      playbook: { decision: '确认停机工位的抢修时限与任务改派', impact: '工位停机直接降低厂内物流产能', owner: '物流主管', dueHours: 2, weight: 2 },
     },
   ],
 
-  situation({ db, now, signals }) {
-    const t = totals(stationStats(db, now));
+  situation({ db, signals }) {
+    // Latest report per station: the card shows what is happening now, not an hour's average.
+    const latest = stationStats(db, 1);
+    const t = totals(latest);
+    const worst = worstStation(latest);
+    const worstRate = worst ? (worst.picks - worst.pickFailures) / worst.picks : 1;
     const level: Level = signals.some((s) => s.severity === 'critical') ? 'alert' : signals.length ? 'watch' : 'normal';
     const top = signals.find((s) => s.severity === 'critical') ?? signals[0];
-    const pickRate = t.picks ? 1 - t.pickFailures / t.picks : 1;
     return {
       title: '厂内物流产能',
       level,
       headline: top ? top.title : '识别、抓取、码垛运行正常',
       metrics: [
-        { label: '抓取成功率', value: percent(t.picks - t.pickFailures, t.picks), tone: pickRate < 0.97 ? 'bad' : 'good' },
+        worst && worstRate < 0.97
+          ? { label: `${worst.station} 抓取`, value: percent(worst.picks - worst.pickFailures, worst.picks), tone: 'bad' }
+          : { label: '实时抓取成功率', value: percent(t.picks - t.pickFailures, t.picks), tone: 'good' },
         { label: '码垛合规率', value: percent(t.placements - t.placementInvalid, t.placements), tone: 'neutral' },
         { label: '入库积压', value: t.backlog, unit: '箱', tone: t.backlog > 30 ? 'bad' : 'good' },
       ],
     };
   },
 
-  overview({ db, now }) {
-    const stats = stationStats(db, now);
+  overview({ db }) {
+    const stats = stationStats(db);
     const t = totals(stats);
     const stations = listStations(db);
     const bins = db.prepare('SELECT * FROM logistics_bin_types ORDER BY code').all() as Record<string, unknown>[];
     return {
       metrics: [
-        { label: '近 1 小时识别', value: t.recognitions, unit: '箱' },
+        { label: '近期识别', value: t.recognitions, unit: '箱' },
         { label: '抓取成功率', value: percent(t.picks - t.pickFailures, t.picks) },
         { label: '码垛合规率', value: percent(t.placements - t.placementInvalid, t.placements) },
         { label: '平均节拍', value: t.avgCycleTime === null ? '—' : round(t.avgCycleTime, 1), unit: '秒' },
@@ -151,7 +157,7 @@ export const logisticsModule: DomainModule = {
       tables: [
         {
           kind: 'table',
-          title: '工位（近 1 小时）',
+          title: '工位（各工位最近 6 次上报）',
           columns: ['工位', '区域', '类型', '状态', '识别', '识别失败', '抓取', '抓取失败', '码放', '不合规', '平均节拍(秒)', '积压'],
           rows: stats.map((s) => {
             const station = stations.find((x) => x.id === s.station)!;

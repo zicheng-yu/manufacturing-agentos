@@ -204,9 +204,10 @@ export function createApp(deps: Deps): Hono<AppEnv> {
     const account = requireAccount(c);
     const domains = domainsFor(account.role);
     const scopes = account.role === 'executive' ? [...domains, 'executive' as const] : domains;
+    // Only turns produced by the briefing button; follow-up questions to the same agent don't replace it.
     const briefing = deps.db
-      .prepare('SELECT * FROM turns WHERE account_id = ? AND agent_id = ? ORDER BY created_at DESC LIMIT 1')
-      .get(account.id, BRIEFING_AGENT) as Row | undefined;
+      .prepare('SELECT * FROM turns WHERE account_id = ? AND agent_id = ? AND input = ? ORDER BY created_at DESC LIMIT 1')
+      .get(account.id, BRIEFING_AGENT, BRIEFING_QUESTION) as Row | undefined;
     const cockpit: Cockpit = {
       situations: domains.map((d) => computeSituation(deps, d)),
       signals: rankSignals(listSignals(deps, domains)),
@@ -217,15 +218,10 @@ export function createApp(deps: Deps): Hono<AppEnv> {
     return c.json(cockpit);
   });
 
+  // Each briefing starts a fresh conversation, so it reflects the current situation rather than earlier chat.
   app.post('/api/cockpit/briefing', async (c) => {
     const account = requireScope(c, 'executive');
-    const today = deps.clock().toISOString().slice(0, 10);
-    const existing = deps.db
-      .prepare('SELECT id FROM conversations WHERE account_id = ? AND agent_id = ? AND created_at >= ? ORDER BY created_at DESC LIMIT 1')
-      .get(account.id, BRIEFING_AGENT, today) as Row | undefined;
-    return c.json(
-      await runTurn(deps, { account, agentId: BRIEFING_AGENT, conversationId: (existing?.id as string) ?? null, question: BRIEFING_QUESTION }),
-    );
+    return c.json(await runTurn(deps, { account, agentId: BRIEFING_AGENT, question: BRIEFING_QUESTION }));
   });
 
   // --- Memory and tasks ------------------------------------------------------

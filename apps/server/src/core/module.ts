@@ -58,6 +58,11 @@ export interface EventTypeDefinition {
   type: string;
   label: string;
   severity: Severity;
+  /**
+   * 'occurrence' (default): repeats within 10 minutes add to the count, e.g. grasp failures.
+   * 'state': a condition such as a stockout risk; re-reports merge while it is unresolved and do not add to the count.
+   */
+  kind?: 'occurrence' | 'state';
   /** Payload fields that identify a distinct occurrence, e.g. orderId. Repeats with the same values merge. */
   dedupeFields?: string[];
   /** Payload fields hidden from these roles in the API and the live stream. */
@@ -75,7 +80,14 @@ export interface SignalRule {
   groupBy?(event: AgentOSEvent): string | null;
   describe(events: AgentOSEvent[], group: string | null): { title: string; summary: string };
   /** What the chairman should decide when this signal is active. Used by the decision briefing. */
-  playbook: { decision: string; impact: string; owner: string; dueHours: number };
+  playbook: {
+    decision: string;
+    impact: string;
+    owner: string;
+    dueHours: number;
+    /** How much this belongs on the chairman's desk: 3 = business-level, 1 = handled by a supervisor. */
+    weight: 1 | 2 | 3;
+  };
 }
 
 export interface AgentDefinition {
@@ -92,6 +104,8 @@ export interface AgentDefinition {
 
 export interface AgentCtx extends ModuleCtx {
   input: string;
+  /** Earlier questions in the same conversation, oldest first, for resolving follow-ups. */
+  history: string[];
   account: Account;
   deps: Deps;
 }

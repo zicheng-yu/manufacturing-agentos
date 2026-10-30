@@ -83,15 +83,24 @@ export function listAttrition(db: DB, since?: string): AttritionRisk[] {
   }));
 }
 
-/** Title and keyword hits count double, so short questions like "年假有几天" still find their policy. */
-export function searchPolicies(db: DB, question: string): { policy: Policy; score: number }[] {
-  return listPolicies(db)
-    .map((policy) => ({
-      policy,
-      score: 2 * keywordScore(question, `${policy.title} ${policy.keywords}`) + keywordScore(question, `${policy.category} ${policy.content}`),
-    }))
-    .filter((r) => r.score >= 4)
-    .sort((a, b) => b.score - a.score);
+/**
+ * Policies whose keywords appear verbatim in the question; two-character overlaps only rank them.
+ * A follow-up without any keyword ("我入职 3 年了呢") falls back to the earlier questions.
+ */
+export function searchPolicies(db: DB, question: string, history: string[] = []): { policy: Policy; score: number }[] {
+  const policies = listPolicies(db);
+  for (const text of [question, ...[...history].reverse()]) {
+    const hits = policies
+      .map((policy) => ({
+        policy,
+        whole: policy.keywords.split(/\s+/).filter((k) => k && text.includes(k)).length,
+      }))
+      .filter((r) => r.whole > 0)
+      .map((r) => ({ policy: r.policy, score: r.whole * 10 + keywordScore(text, `${r.policy.title} ${r.policy.content}`) }))
+      .sort((a, b) => b.score - a.score);
+    if (hits.length) return hits;
+  }
+  return [];
 }
 
 export function daysOpen(position: Position, today: string): number {

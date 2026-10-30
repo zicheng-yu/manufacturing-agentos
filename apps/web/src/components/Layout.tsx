@@ -78,7 +78,9 @@ export function Layout() {
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <header className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-slate-200 bg-white px-4 py-2.5 md:px-6">
-          <div className="min-w-0 flex-1 truncate text-sm text-slate-500">{session.company.name}</div>
+          <div className="min-w-0 flex-1 truncate text-sm text-slate-500">
+            <span className="hidden sm:inline">{session.company.name}</span>
+          </div>
           <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] text-amber-700 ring-1 ring-amber-200" title={session.company.demoNotice}>
             演示数据
           </span>

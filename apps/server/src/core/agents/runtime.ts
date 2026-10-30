@@ -4,17 +4,17 @@ import { parseJson, transaction, type Row } from '../../db.ts';
 import { COMPANY } from '../../seed/company.ts';
 import type { Deps } from '../deps.ts';
 import { ingestEvent } from '../events.ts';
-import { addTask, listMemory, remember } from '../memory.ts';
-import { canSee, domainsFor } from '../roles.ts';
+import { addTask, listMemoryForTurns, remember } from '../memory.ts';
+import { canSee } from '../roles.ts';
 import { evaluateDomain } from '../signals.ts';
-import { isoDate, newId, unique } from '../util.ts';
+import { isoDate, newId, normalizeText, unique } from '../util.ts';
 import { buildMessages, offlineDraft, parseModelOutput, type DraftResult } from './prompt.ts';
 
 const HISTORY_TURNS = 6;
 const MEMORY_RECORDS = 20;
+const MODEL_ACTIONS = 3;
 
-/** Ignore whitespace and punctuation so a model's rephrasing of a known item counts as a duplicate. */
-const normalize = (text: string) => text.toLowerCase().replace(/[\s\p{P}\p{S}]/gu, '');
+const normalize = normalizeText;
 
 /** Context items first, then the model's additions; drops near-duplicates and boilerplate. */
 function mergeItems(context: string[] | undefined, model: string[], limit: number): string[] {
@@ -91,11 +91,11 @@ export async function runTurn(
   }
 
   const started = Date.now();
-  const context = agent.context({ db: deps.db, now, input: question, account, deps });
-  const scopes = agent.module === 'executive' ? [...domainsFor(account.role), 'executive' as const] : [agent.module];
-  const history = listTurns(deps, conversation.id)
-    .slice(-HISTORY_TURNS)
-    .map((t) => ({ input: t.input, answer: t.result.answer }));
+  const earlier = listTurns(deps, conversation.id).slice(-HISTORY_TURNS);
+  const context = agent.context({ db: deps.db, now, input: question, history: earlier.map((t) => t.input), account, deps });
+  const history = earlier.map((t) => ({ input: t.input, answer: t.result.answer }));
+  // Only this conversation's working memory: other conversations' figures go stale and leak into answers.
+  const memory = listMemoryForTurns(deps.db, earlier.map((t) => t.id)).slice(-MEMORY_RECORDS);
 
   let mode: Turn['mode'] = deps.provider.mode;
   let draft: DraftResult;
@@ -106,7 +106,7 @@ export async function runTurn(
           company: COMPANY,
           agent,
           context,
-          memory: listMemory(deps.db, scopes, MEMORY_RECORDS),
+          memory,
           history,
           question,
           today: isoDate(now),
@@ -129,7 +129,8 @@ export async function runTurn(
     facts: mergeItems(context.facts, draft.facts, 8),
     pending: mergeItems(context.pending, draft.pending, 6),
     suggestions: mergeItems(context.suggestions, draft.suggestions, 6),
-    actions: unique([...(context.actions ?? []), ...draft.actions], (a) => normalize(a.title)).slice(0, Math.max(5, context.actions?.length ?? 0)),
+    // Actions the analysis worked out become tasks; the model's own only when the analysis has none.
+    actions: context.actions?.length ? context.actions : unique(draft.actions, (a) => normalize(a.title)).slice(0, MODEL_ACTIONS),
     artifacts: context.artifacts ?? [],
     eventIds: [],
   };

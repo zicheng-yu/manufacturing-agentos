@@ -41,12 +41,18 @@ export function keywordScore(query: string, text: string): number {
 
 export function tokenize(text: string): string[] {
   const lower = text.toLowerCase();
-  const latin = lower.match(/[a-z0-9]{2,}/g) ?? [];
+  // Pure numbers ("30", "2") match codes like BLU-1230 by accident, so only words with a letter count.
+  const latin = (lower.match(/[a-z0-9]{2,}/g) ?? []).filter((t) => /[a-z]/.test(t));
   const cjk: string[] = [];
   for (const run of lower.match(/[一-鿿]+/g) ?? []) {
     for (let i = 0; i < run.length - 1; i++) cjk.push(run.slice(i, i + 2));
   }
   return unique([...latin, ...cjk]);
+}
+
+/** Ignore whitespace and punctuation, so a rephrasing of a known item counts as a duplicate. */
+export function normalizeText(text: string): string {
+  return text.toLowerCase().replace(/[\s\p{P}\p{S}]/gu, '');
 }
 
 export function round(value: number, digits = 1): number {

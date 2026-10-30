@@ -1,19 +1,5 @@
 import type { DB, Row } from '../../db.ts';
-
-export interface Material {
-  code: string;
-  name: string;
-  category: string;
-  unit: string;
-  line: string;
-  onHand: number;
-  /** Quantity on orders that are not delayed. */
-  inTransit: number;
-  dailyUsage: number;
-  safetyDays: number;
-  supplierId: string;
-  unitPrice: number;
-}
+import { addDays, isoDate, keywordScore } from '../../core/util.ts';
 
 export interface Order {
   id: string;
@@ -23,6 +9,28 @@ export interface Order {
   eta: string;
   delayDays: number;
   status: string;
+}
+
+export interface Material {
+  code: string;
+  name: string;
+  /** Words people use for it, e.g. 柔性板 for FPC. */
+  aliases: string;
+  category: string;
+  unit: string;
+  line: string;
+  onHand: number;
+  /** Quantity on all open orders, delayed ones included. */
+  inTransit: number;
+  orders: Order[];
+  dailyUsage: number;
+  safetyDays: number;
+  supplierId: string;
+  unitPrice: number;
+  /** Days until stock runs out, counting each open order on its (possibly delayed) arrival date. */
+  cover: number;
+  /** Date stock runs out within the horizon, or null. */
+  stockoutDate: string | null;
 }
 
 export interface Quote {
@@ -39,6 +47,7 @@ export interface Quote {
 }
 
 export const VAT_RATE = 0.13;
+const HORIZON_DAYS = 60;
 
 export function listOrders(db: DB): Order[] {
   return (db.prepare('SELECT * FROM supply_orders ORDER BY eta').all() as Row[]).map((r) => ({
@@ -52,40 +61,109 @@ export function listOrders(db: DB): Order[] {
   }));
 }
 
-export function listMaterials(db: DB): Material[] {
-  const onTime = new Map<string, number>();
-  for (const o of listOrders(db)) {
-    if (o.status === '在途') onTime.set(o.materialCode, (onTime.get(o.materialCode) ?? 0) + o.qty);
+/** Walk the stock forward day by day: consume daily usage, add each order on its arrival day. */
+export function runOut(onHand: number, dailyUsage: number, arrivals: { day: number; qty: number }[]): number {
+  if (dailyUsage <= 0) return Infinity;
+  let stock = onHand;
+  let t = 0;
+  for (const a of [...arrivals].sort((x, y) => x.day - y.day)) {
+    const day = Math.max(a.day, 0);
+    if (t + stock / dailyUsage < day) return t + stock / dailyUsage;
+    stock -= (day - t) * dailyUsage;
+    stock += a.qty;
+    t = day;
   }
-  return (db.prepare('SELECT * FROM supply_materials ORDER BY line, code').all() as Row[]).map((r) => ({
-    code: String(r.code),
-    name: String(r.name),
-    category: String(r.category),
-    unit: String(r.unit),
-    line: String(r.line),
-    onHand: Number(r.on_hand),
-    inTransit: onTime.get(String(r.code)) ?? 0,
-    dailyUsage: Number(r.daily_usage),
-    safetyDays: Number(r.safety_days),
-    supplierId: String(r.supplier_id),
-    unitPrice: Number(r.unit_price),
-  }));
+  return Math.min(t + stock / dailyUsage, HORIZON_DAYS);
+}
+
+export function listMaterials(db: DB, now: Date): Material[] {
+  const orders = listOrders(db).filter((o) => o.status !== '已到货');
+  const today = Date.parse(isoDate(now));
+  return (db.prepare('SELECT * FROM supply_materials ORDER BY line, code').all() as Row[]).map((r) => {
+    const code = String(r.code);
+    const mine = orders.filter((o) => o.materialCode === code);
+    const dailyUsage = Number(r.daily_usage);
+    const onHand = Number(r.on_hand);
+    const cover = runOut(
+      onHand,
+      dailyUsage,
+      mine.map((o) => ({ day: (Date.parse(o.eta) - today) / 86_400_000, qty: o.qty })),
+    );
+    return {
+      code,
+      name: String(r.name),
+      aliases: String(r.aliases ?? ''),
+      category: String(r.category),
+      unit: String(r.unit),
+      line: String(r.line),
+      onHand,
+      inTransit: mine.reduce((s, o) => s + o.qty, 0),
+      orders: mine,
+      dailyUsage,
+      safetyDays: Number(r.safety_days),
+      supplierId: String(r.supplier_id),
+      unitPrice: Number(r.unit_price),
+      cover,
+      stockoutDate: cover < HORIZON_DAYS ? isoDate(addDays(now, Math.floor(cover))) : null,
+    };
+  });
 }
 
 export function coverDays(m: Material): number {
-  return m.dailyUsage > 0 ? (m.onHand + m.inTransit) / m.dailyUsage : Infinity;
+  return m.cover;
 }
 
 export function materialStatus(m: Material): '正常' | '低于安全库存' | '缺料风险' {
-  const days = coverDays(m);
-  if (days < m.safetyDays * 0.6) return '缺料风险';
-  if (days < m.safetyDays) return '低于安全库存';
+  if (m.cover < m.safetyDays * 0.6) return '缺料风险';
+  if (m.cover < m.safetyDays) return '低于安全库存';
   return '正常';
+}
+
+/** Best material for a question, or null when nothing in the catalogue matches. */
+export function matchMaterial(materials: Material[], text: string, preferCodes: Set<string> = new Set()): Material | null {
+  const upper = text.toUpperCase();
+  const scored = materials
+    .map((m) => ({
+      m,
+      score:
+        (upper.includes(m.code) ? 100 : 0) +
+        2 * m.aliases.split(/\s+/).filter((a) => a && text.includes(a)).length * 10 +
+        keywordScore(text, `${m.name} ${m.category}`),
+    }))
+    .filter((s) => s.score >= 2)
+    .sort((a, b) => b.score - a.score);
+  if (scored.length === 0) return null;
+  const best = scored.filter((s) => s.score === scored[0].score).map((s) => s.m);
+  return best.find((m) => preferCodes.has(m.code)) ?? best[0];
 }
 
 export function supplierName(db: DB, id: string): string {
   const row = db.prepare('SELECT name FROM supply_suppliers WHERE id = ?').get(id) as Row | undefined;
   return row ? String(row.name) : id;
+}
+
+export interface Supplier {
+  id: string;
+  name: string;
+  category: string;
+  region: string;
+  rating: string;
+  leadTimeDays: number;
+  onTimeRate: number;
+  note: string;
+}
+
+export function listSuppliers(db: DB): Supplier[] {
+  return (db.prepare('SELECT * FROM supply_suppliers ORDER BY category, name').all() as Row[]).map((r) => ({
+    id: String(r.id),
+    name: String(r.name),
+    category: String(r.category),
+    region: String(r.region),
+    rating: String(r.rating),
+    leadTimeDays: Number(r.lead_time_days),
+    onTimeRate: Number(r.on_time_rate),
+    note: String(r.note),
+  }));
 }
 
 export function listQuotes(db: DB, materialCode: string): Quote[] {

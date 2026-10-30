@@ -6,6 +6,7 @@ import { addDays, isoDate } from '../../core/util.ts';
 const CASES = [
   [
     'QC-2024-017',
+    '黑一下 时好时坏 黑屏 金手指 发黑 氧化',
     'FPC 金手指氧化导致接触不良',
     '12.3 英寸中控屏模组',
     'FPC 接触不良',
@@ -17,6 +18,7 @@ const CASES = [
   ],
   [
     'QC-2025-003',
+    '发暗 暗角 亮度不均 一块暗',
     '背光扩散膜褶皱造成亮度不均',
     '12.3 英寸中控屏模组',
     '背光亮度不均',
@@ -28,6 +30,7 @@ const CASES = [
   ],
   [
     'QC-2025-011',
+    '起泡 鼓包 气泡 边上',
     '偏光片贴合气泡',
     '10.25 英寸仪表屏模组',
     '偏光片气泡',
@@ -39,6 +42,7 @@ const CASES = [
   ],
   [
     'QC-2025-020',
+    '不亮 无显示 静电',
     '驱动 IC 静电损伤',
     '10.25 英寸仪表屏模组',
     '驱动 IC 失效',
@@ -50,6 +54,7 @@ const CASES = [
   ],
   [
     'QC-2026-002',
+    '触摸 触控 失灵 点不动',
     'OCA 溢胶导致触控失灵',
     '12.3 英寸中控屏模组',
     '触控失灵',
@@ -64,11 +69,11 @@ const CASES = [
 export function seedQuality({ db, now }: ModuleCtx): void {
   const day = (n: number) => isoDate(addDays(now, n));
   const insertCase = db.prepare(
-    `INSERT INTO quality_cases (id, title, product, category, symptom, root_cause, countermeasure, supplier, closed_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO quality_cases (id, title, keywords, product, category, symptom, root_cause, countermeasure, supplier, closed_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
-  for (const [id, title, product, category, symptom, root, counter, supplier, closed] of CASES) {
-    insertCase.run(id, title, product, category, symptom, root, counter, supplier, day(closed));
+  for (const [id, keywords, title, product, category, symptom, root, counter, supplier, closed] of CASES) {
+    insertCase.run(id, title, keywords, product, category, symptom, root, counter, supplier, day(closed));
   }
 
   const complaint = db.prepare(

@@ -63,7 +63,9 @@ export function buildMessages(input: {
   const system = [
     `你是${input.company.name}企业智能体系统中的「${input.agent.name}」。今天是 ${input.today}。`,
     input.agent.instructions,
-    '规则：只依据下面提供的业务数据、共享工作记忆和对话作答，不要编造数字、日期、供应商或人名；数据里没有的信息写进 pending。',
+    '规则：只依据下面提供的业务数据、本对话已确认的信息和对话历史作答，不要编造数字、日期、供应商、人名或原因；数据里没有的信息写进 pending，并在正文里直说「数据中没有」。',
+    '业务数据里写着「待…」或为空的内容（例如「D4：待失效分析」），正文照实写，不得自行补全；业务数据里已经给出的数字直接引用，不要说「缺少」。',
+    '问到数据里没有的物料、供应商或制度时，明确说「未收录」，不要拿别的条目顶替。',
     '事实、待核信息、建议要分开。',
     OUTPUT_SPEC,
   ].join('\n\n');
@@ -71,6 +73,7 @@ export function buildMessages(input: {
   const memory = input.memory.length
     ? input.memory.map((m) => `- [${m.kind === 'fact' ? '事实' : m.kind === 'pending' ? '待核' : '建议'}] ${m.content}`).join('\n')
     : '（暂无）';
+  // Memory here is this conversation's working memory only.
   const deterministic = [
     input.context.facts?.length ? `已算出的事实：\n${input.context.facts.map((f) => `- ${f}`).join('\n')}` : '',
     input.context.pending?.length ? `已识别的待核项：\n${input.context.pending.map((f) => `- ${f}`).join('\n')}` : '',
@@ -87,7 +90,7 @@ export function buildMessages(input: {
   }
   messages.push({
     role: 'user',
-    content: `${renderBlocks(input.context)}\n\n${deterministic}\n\n【共享工作记忆】\n${memory}\n\n【问题】\n${input.question}`,
+    content: `${renderBlocks(input.context)}\n\n${deterministic}\n\n【本对话已确认的信息】\n${memory}\n\n【问题】\n${input.question}`,
   });
   return messages;
 }

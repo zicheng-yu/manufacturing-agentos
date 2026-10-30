@@ -1,6 +1,6 @@
 import type { Domain, MemoryRecord, Task } from '@agentos/shared';
 import type { DB, Row } from '../db.ts';
-import { newId } from './util.ts';
+import { newId, normalizeText } from './util.ts';
 
 type Scope = Domain | 'executive';
 
@@ -17,14 +17,15 @@ function rowToMemory(row: Row): MemoryRecord {
   };
 }
 
-/** Adds a record unless the same content already exists in that scope. */
+/** Adds a record unless the same content (ignoring punctuation and spacing) already exists in that scope. */
 export function remember(
   db: DB,
   input: Omit<MemoryRecord, 'id' | 'createdAt'>,
   now: Date,
 ): MemoryRecord | null {
-  const exists = db.prepare('SELECT 1 FROM memory WHERE domain = ? AND content = ?').get(input.domain, input.content);
-  if (exists) return null;
+  const key = normalizeText(input.content);
+  const existing = db.prepare('SELECT content FROM memory WHERE domain = ?').all(input.domain) as Row[];
+  if (existing.some((r) => normalizeText(String(r.content)) === key)) return null;
   const id = newId('MEM');
   db.prepare(
     `INSERT INTO memory (id, domain, kind, content, source, agent_id, turn_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -38,6 +39,14 @@ export function listMemory(db: DB, scopes: Scope[], limit = 50): MemoryRecord[] 
   const rows = db
     .prepare(`SELECT * FROM memory WHERE domain IN (${placeholders}) ORDER BY created_at DESC LIMIT ${Math.min(limit, 500)}`)
     .all(...scopes) as Row[];
+  return rows.map(rowToMemory);
+}
+
+/** Working memory of one conversation: what its earlier turns established. */
+export function listMemoryForTurns(db: DB, turnIds: string[]): MemoryRecord[] {
+  if (turnIds.length === 0) return [];
+  const placeholders = turnIds.map(() => '?').join(',');
+  const rows = db.prepare(`SELECT * FROM memory WHERE turn_id IN (${placeholders}) ORDER BY created_at`).all(...turnIds) as Row[];
   return rows.map(rowToMemory);
 }
 

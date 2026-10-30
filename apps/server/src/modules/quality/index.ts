@@ -11,7 +11,7 @@ export const qualityModule: DomainModule = {
   description: '客诉受理、同类案例检索、8D 改善：让质量问题更快处理',
   schema: `
     CREATE TABLE IF NOT EXISTS quality_cases (
-      id TEXT PRIMARY KEY, title TEXT NOT NULL, product TEXT NOT NULL, category TEXT NOT NULL, symptom TEXT NOT NULL,
+      id TEXT PRIMARY KEY, title TEXT NOT NULL, keywords TEXT NOT NULL DEFAULT '', product TEXT NOT NULL, category TEXT NOT NULL, symptom TEXT NOT NULL,
       root_cause TEXT NOT NULL, countermeasure TEXT NOT NULL, supplier TEXT NOT NULL, closed_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS quality_complaints (
@@ -29,8 +29,8 @@ export const qualityModule: DomainModule = {
 
   eventTypes: [
     { type: 'customer_complaint', label: '客户投诉', severity: 'warn', dedupeFields: ['complaintId'] },
-    { type: 'defect_recurrence', label: '同类异常复发', severity: 'critical', dedupeFields: ['complaintId'] },
-    { type: 'capa_overdue', label: '8D 整改逾期', severity: 'warn', dedupeFields: ['capaId'] },
+    { type: 'defect_recurrence', label: '同类异常复发', severity: 'critical', kind: 'state', dedupeFields: ['complaintId'] },
+    { type: 'capa_overdue', label: '8D 整改逾期', severity: 'warn', kind: 'state', dedupeFields: ['capaId'] },
   ],
 
   signalRules: [
@@ -50,6 +50,7 @@ export const qualityModule: DomainModule = {
         impact: '历史问题复发说明对策未闭环，存在批量客诉与索赔风险',
         owner: '品质经理牵头，供应链 SQE 配合',
         dueHours: 24,
+        weight: 3,
       },
     },
     {
@@ -67,6 +68,7 @@ export const qualityModule: DomainModule = {
         impact: '客诉集中出现会影响客户评分与后续定点',
         owner: '品质经理',
         dueHours: 24,
+        weight: 2,
       },
     },
     {
@@ -84,6 +86,7 @@ export const qualityModule: DomainModule = {
         impact: '整改逾期会让同类问题继续流出',
         owner: '品质经理',
         dueHours: 48,
+        weight: 1,
       },
     },
   ],
@@ -178,6 +181,7 @@ export const qualityModule: DomainModule = {
         category: match.category,
         caseId: match.id,
         caseTitle: match.title,
+        rootCause: match.rootCause,
         supplier: match.supplier,
         materialCode: p.materialCode,
       },
