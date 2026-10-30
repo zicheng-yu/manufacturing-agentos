@@ -1,9 +1,11 @@
 import type { Level } from '@agentos/shared';
 import type { DomainModule } from '../../core/module.ts';
-import { addDays, isoDate } from '../../core/util.ts';
 import { capaAgent, complaintAgent } from './agents.ts';
-import { isOverdue, listCapa, listCases, listComplaints, similarCases } from './data.ts';
+import { complaintTrend, isClosedComplaint, isOverdue, listCapa, listCases, listComplaints, similarCases } from './data.ts';
 import { qualitySeedEvents, seedQuality } from './seed.ts';
+import { qualityDate } from './calendar.ts';
+import { qualityRoutes } from './routes.ts';
+import { normalizeSymptom } from './symptoms.ts';
 
 export const qualityModule: DomainModule = {
   id: 'quality',
@@ -26,9 +28,10 @@ export const qualityModule: DomainModule = {
   seed: seedQuality,
   seedEvents: qualitySeedEvents,
   agents: [complaintAgent, capaAgent],
+  routes: qualityRoutes,
 
   eventTypes: [
-    { type: 'customer_complaint', label: '客户投诉', severity: 'warn', dedupeFields: ['complaintId'] },
+    { type: 'customer_complaint', label: '客户投诉', severity: 'warn', kind: 'state', dedupeFields: ['complaintId'] },
     { type: 'defect_recurrence', label: '同类异常复发', severity: 'critical', kind: 'state', dedupeFields: ['complaintId'] },
     { type: 'capa_overdue', label: '8D 整改逾期', severity: 'warn', kind: 'state', dedupeFields: ['capaId'] },
   ],
@@ -46,8 +49,8 @@ export const qualityModule: DomainModule = {
         summary: events.at(-1)!.summary,
       }),
       playbook: {
-        decision: '启动 8D 并约谈相关供应商，决定是否追溯在库与在途批次',
-        impact: '历史问题复发说明对策未闭环，存在批量客诉与索赔风险',
+        decision: '启动 8D 核实根因及供应商关联，决定是否追溯在库与在途批次',
+        impact: '同类症状可能复发，需验证根因与历史对策执行，评估批量客诉与索赔风险',
         owner: '品质经理牵头，供应链 SQE 配合',
         dueHours: 24,
         weight: 3,
@@ -60,7 +63,7 @@ export const qualityModule: DomainModule = {
       threshold: 3,
       severity: 'warn',
       describe: (events) => ({
-        title: `近 7 天客诉 ${events.length} 起`,
+        title: `近 7 天有更新的客诉 ${new Set(events.map((e) => e.payload.complaintId ?? e.id)).size} 起`,
         summary: events.map((e) => e.title).join('；'),
       }),
       playbook: {
@@ -78,7 +81,7 @@ export const qualityModule: DomainModule = {
       threshold: 1,
       severity: 'warn',
       describe: (events) => ({
-        title: `8D 整改逾期 ${events.length} 项`,
+        title: `8D 整改逾期 ${new Set(events.map((e) => e.payload.capaId ?? e.id)).size} 项`,
         summary: events.map((e) => e.summary).join('；'),
       }),
       playbook: {
@@ -92,11 +95,10 @@ export const qualityModule: DomainModule = {
   ],
 
   situation({ db, now, signals }) {
-    const today = isoDate(now);
-    const open = listComplaints(db).filter((c) => c.status !== '已结案');
+    const today = qualityDate(now);
+    const open = listComplaints(db).filter((c) => !isClosedComplaint(c) && c.receivedAt <= today);
     const overdue = listCapa(db).filter((c) => isOverdue(c, today));
-    const weekAgo = isoDate(addDays(now, -7));
-    const recent = listComplaints(db).filter((c) => c.receivedAt >= weekAgo);
+    const trend = complaintTrend(db, today);
     const level: Level = signals.some((s) => s.severity === 'critical')
       ? 'alert'
       : signals.length > 0 || overdue.length > 0
@@ -110,24 +112,28 @@ export const qualityModule: DomainModule = {
       metrics: [
         { label: '未结客诉', value: open.length, unit: '起', tone: open.length ? 'bad' : 'good' },
         { label: '8D 逾期', value: overdue.length, unit: '项', tone: overdue.length ? 'bad' : 'good' },
-        { label: '近 7 天新增', value: recent.length, unit: '起', tone: 'neutral' },
+        { label: '近 7 天新增', value: trend.current, unit: '起', tone: 'neutral' },
+        { label: '较前 7 天增减', value: trend.delta, unit: '起', tone: trend.delta > 0 ? 'bad' : trend.delta < 0 ? 'good' : 'neutral' },
       ],
     };
   },
 
   overview({ db, now }) {
-    const today = isoDate(now);
+    const today = qualityDate(now);
     const complaints = listComplaints(db);
     const capa = listCapa(db);
     const cases = listCases(db);
+    const trend = complaintTrend(db, today);
     return {
       metrics: [
-        { label: '未结客诉', value: complaints.filter((c) => c.status !== '已结案').length, unit: '起' },
-        { label: '整改项', value: capa.filter((c) => c.status !== '已完成').length, unit: '项' },
+        { label: '未结客诉', value: complaints.filter((c) => !isClosedComplaint(c) && c.receivedAt <= today).length, unit: '起' },
+        { label: '整改项', value: capa.filter((c) => !['已完成', '已取消'].includes(c.status)).length, unit: '项' },
         { label: '8D 逾期', value: capa.filter((c) => isOverdue(c, today)).length, unit: '项' },
         { label: '案例库', value: cases.length, unit: '条' },
+        { label: '近 7 天新增', value: trend.current, unit: '起' },
       ],
       tables: [
+        { kind: 'table', title: '近 7 天客诉趋势', columns: ['日期', '新增客诉'], rows: trend.daily.map((d) => [d.day, d.count]), note: `中国标准时间，今天及前6天；共 ${trend.current} 起，前7天 ${trend.previous} 起，增减 ${trend.delta} 起。按客诉编号计数，排除未来日期与已取消记录；不把未跟踪的成本或关闭日期当作已有指标。` },
         {
           kind: 'table',
           title: '客诉',
@@ -154,8 +160,9 @@ export const qualityModule: DomainModule = {
     if (event.type !== 'customer_complaint' || !created) return;
     const p = event.payload as Record<string, string | undefined>;
     const complaintId = p.complaintId ?? event.id;
-    const query = `${p.symptom ?? ''} ${p.category ?? ''}`;
-    const match = similarCases(db, query, p.category)[0]?.case ?? null;
+    const query = (p.symptom ?? event.summary).replace(/\bQC-[A-Z0-9-]+\b/gi, '');
+    const match = similarCases(db, query, p.category).find((m) => m.specific &&
+      (!p.category || p.category === '未分类' || normalizeSymptom(p.category) === normalizeSymptom(m.case.category)))?.case ?? null;
     db.prepare(
       `INSERT OR IGNORE INTO quality_complaints (id, customer, product, batch, symptom, category, severity, status, received_at, owner, case_id)
        VALUES (?, ?, ?, ?, ?, ?, ?, '处理中', ?, '品质经理', ?)`,
@@ -167,22 +174,25 @@ export const qualityModule: DomainModule = {
       p.symptom ?? event.summary,
       p.category ?? '未分类',
       event.severity === 'critical' ? '严重' : '一般',
-      isoDate(now),
+      qualityDate(now),
       match?.id ?? null,
     );
     if (!match) return;
     emit({
       domain: 'quality',
       type: 'defect_recurrence',
-      title: `${complaintId} 与 ${match.id} 同类复发`,
-      summary: `${p.customer ?? ''}「${p.symptom ?? ''}」与历史案例 ${match.id}「${match.title}」同类；历史根因：${match.rootCause}；涉及供应商：${match.supplier}`,
+      title: `${complaintId} 与 ${match.id} 疑似同类复发`,
+      summary: `${p.customer ?? ''}「${p.symptom ?? ''}」与历史案例 ${match.id}「${match.title}」症状相似；历史根因：${match.rootCause}；历史案例涉及供应商：${match.supplier}；本次根因与责任归属待失效分析确认`,
       payload: {
         complaintId,
         category: match.category,
         caseId: match.id,
         caseTitle: match.title,
         rootCause: match.rootCause,
-        supplier: match.supplier,
+        supplier: p.supplier ?? match.supplier,
+        supplierId: p.supplierId,
+        historicalSupplier: match.supplier,
+        rootCauseStatus: 'historical_only_pending_verification',
         materialCode: p.materialCode,
       },
       source: { channel: event.source.channel, actor: '案例比对规则' },
