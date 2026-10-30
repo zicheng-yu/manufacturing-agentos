@@ -14,6 +14,8 @@ import {
 } from './data.ts';
 import { isInventoryOverview, isSupplierInventoryQuestion, isSupplierQuestion, matchSuppliers, materialCodes, resolveMaterial, unknownSuppliers } from './lookup.ts';
 import { riskBlocks, riskEvents, riskTable, supplierRisks } from './risk.ts';
+import { inheritPurchaseRequest } from './request.ts';
+import { purchaseContext } from './purchase.ts';
 
 /** Quantity to bring cover back to safety stock plus one week, counting everything already on order. */
 export function replenishQty(m: Material): number {
@@ -70,7 +72,7 @@ export const sourcingAgent: AgentDefinition = {
   name: '寻源比价助手',
   description: '多家报价按含税价、MOQ、交期、付款条件归一，结合库存缺口给出推荐',
   instructions:
-    '你负责供应商寻源与比价。比较时必须使用已归一的含税单价与交期缺口，推荐要说明理由；付款条件、新供应商质量验证等未确认事项放入 pending；系统不会替人下单，被要求下单时说明需由供应链经理审批执行。',
+    '你负责供应商寻源与比价。比较时必须使用已归一的含税单价与交期缺口，推荐要说明理由；用户给出本次数量和期限时以本次采购需求为准，不得改用默认补货量。无按期方案时明确说明，不能把排名第一说成满足期限。付款条件、库存分配、新供应商质量验证等未确认事项放入 pending；系统不会替人下单，被要求下单时说明需由供应链经理审批执行。',
   starters: ['柔性板快断货了，几家供应商怎么选？', '驱动芯片找哪家买最划算？', '偏光片涨价后有什么应对'],
   context(ctx) {
     const { db, now, input, history, deps } = ctx;
@@ -98,6 +100,15 @@ export const sourcingAgent: AgentDefinition = {
       };
     }
     if (!material) return supplierOverview(ctx);
+
+    const scopedHistory: string[] = [];
+    for (let i = history.length - 1; i >= 0; i--) {
+      const previous = resolveMaterial(materials, suppliers, '那怎么选', history.slice(0, i + 1), quoted);
+      if (!previous || previous.code !== material.code) break;
+      scopedHistory.unshift(history[i]);
+    }
+    const request = inheritPurchaseRequest(input, scopedHistory, now);
+    if (request.quantitySpecified || request.deadlineSpecified || request.errors.length) return purchaseContext(ctx, material, request, requested);
 
     const quotes = listQuotes(db, material.code);
     const current = supplierName(db, material.supplierId);
