@@ -308,7 +308,7 @@ export function syncStockAlerts(deps: Deps): void {
       key: m.code,
       title: `${m.code} ${m.name} 缺料风险`,
       summary: `库存 ${m.onHand} 件，日耗约 ${m.dailyUsage} 件，可用 ${round(m.cover, 1)} 天，预计 ${m.stockoutDate} 断料；安全库存 ${m.safetyStock} 件`,
-      payload: { materialCode: m.code, materialName: m.name, coverDays: round(m.cover, 1), stockoutDate: m.stockoutDate, onHand: m.onHand, safetyStock: m.safetyStock },
+      payload: { materialCode: m.code, materialName: m.name, coverDays: round(m.cover, 1), stockoutDate: m.stockoutDate, onHand: m.onHand, safetyStock: m.safetyStock, causes: ['缺料待料'] },
     })),
     '库存规则',
   );
@@ -322,7 +322,7 @@ export function syncStockAlerts(deps: Deps): void {
           key: 'plant',
           title: `${low.length} 项物料低于安全库存`,
           summary: low.slice(0, 6).map((m) => `${m.code} ${m.name} ${Math.round((m.onHand / m.safetyStock) * 100)}%`).join('；'),
-          payload: { materials: low.map((m) => m.code) },
+          payload: { materials: low.map((m) => m.code), causes: ['缺料待料'] },
         }]
       : [],
     '库存规则',

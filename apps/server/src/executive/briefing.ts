@@ -11,8 +11,11 @@ const LEVEL_LABEL = { normal: '正常', watch: '关注', alert: '告警' } as co
 /** HR departments that correspond to another module, so attrition can be linked to that module's risks. */
 const DEPARTMENT_DOMAIN: Record<string, Domain> = { 供应链部: 'supply', 品质部: 'quality', 智能物流部: 'logistics' };
 
-/** Payload fields that identify the same thing across modules. */
-const LINK_FIELDS = ['materialCode', 'supplierName', 'supplier'];
+/**
+ * Payload fields that identify the same thing across modules: a material, a supplier, or a stop cause such as
+ * 缺料待料 that production losses share with supply shortages and late line-side deliveries. A field may hold a list.
+ */
+const LINK_FIELDS = ['materialCode', 'supplierName', 'supplier', 'causes'];
 
 function ruleFor(deps: Deps, signal: Signal): SignalRule | undefined {
   return deps.registry.module(signal.domain).signalRules.find((r) => r.id === signal.ruleId);
@@ -31,11 +34,13 @@ export function crossDomainLinks(deps: Deps, signals: Signal[]): string[] {
   for (const signal of signals) {
     for (const event of signalEvents(deps, signal)) {
       for (const field of LINK_FIELDS) {
-        const value = event.payload[field];
-        if (typeof value !== 'string' || !value) continue;
-        const byDomain = seen.get(value) ?? new Map<Domain, string>();
-        if (!byDomain.has(signal.domain)) byDomain.set(signal.domain, event.title);
-        seen.set(value, byDomain);
+        const raw = event.payload[field];
+        for (const value of Array.isArray(raw) ? raw : [raw]) {
+          if (typeof value !== 'string' || !value) continue;
+          const byDomain = seen.get(value) ?? new Map<Domain, string>();
+          if (!byDomain.has(signal.domain)) byDomain.set(signal.domain, event.title);
+          seen.set(value, byDomain);
+        }
       }
     }
   }
@@ -64,6 +69,7 @@ const DETAIL_FIELDS: [string, (v: unknown) => string][] = [
   ['caseId', (v) => `同类历史案例 ${v}`],
   ['rootCause', (v) => `历史根因：${v}`],
   ['position', (v) => `岗位 ${v}`],
+  ['lossBreakdown', (v) => `停机构成：${v}`],
 ];
 
 /** A signal with the concrete figures from its events, so answers can cite them. */
@@ -84,7 +90,7 @@ export const briefingAgent: AgentDefinition = {
   id: 'executive.briefing',
   module: 'executive',
   name: '经营决策助手',
-  description: '读取四个模块的态势、信号与共享记忆，给出今天最需要决定的事',
+  description: '读取各模块的态势、信号与共享记忆，给出今天最需要决定的事',
   instructions: [
     '你面向董事长。先用一句话概括全局态势，再列出今天最需要决定的事，最后用一两句话点出跨部门关联及其含义。',
     '「今天最需要决定的事」必须与业务数据中的同名清单一一对应：顺序、事项、建议负责人、建议完成时限都不得改动或合并，可以用更适合董事长阅读的话说明影响。',

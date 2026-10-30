@@ -150,7 +150,7 @@ export const supplyModule: DomainModule = {
         : 'normal';
     const top = signals.find((s) => s.severity === 'critical') ?? signals[0];
     return {
-      title: '供应链在途风险',
+      title: '供应链与库存',
       level,
       headline: top ? top.title : low.length ? `${low.length} 项物料低于安全库存` : '库存与在途整体可控',
       metrics: [

@@ -1,10 +1,11 @@
 // Replays the demo storyline through the simulation bridge: `npm run replay` (add -- --fast to skip pauses).
 // Needs a running server with BRIDGE_TOKEN set; reads the same .env.
-import { STORYLINE } from '../apps/server/src/seed/storyline.ts';
+import { storylineFor } from '../apps/server/src/seed/storyline.ts';
 
 const base = process.env.AGENTOS_URL ?? `http://localhost:${process.env.API_PORT ?? 8787}`;
 const token = process.env.BRIDGE_TOKEN;
 const fast = process.argv.includes('--fast');
+const STORYLINE = storylineFor(process.env.DATASET === 'demo' ? 'demo' : 'official');
 
 if (!token) {
   console.error('未设置 BRIDGE_TOKEN：请先 cp .env.example .env');

@@ -20,6 +20,9 @@ const Reading = z.object({
   load: z.number().nullable().optional(),
 });
 
+/** OEE stop causes that another department owns: shortages, quality holds, breakdowns. */
+const LINKED_CAUSES = ['缺料待料', '品质异常', '设备故障'];
+
 const plantOee = (lines: ReturnType<typeof lineOee>) => round(lines.reduce((s, l) => s + l.oee, 0) / (lines.length || 1), 1);
 
 export const productionModule: DomainModule = {
@@ -123,7 +126,14 @@ export const productionModule: DomainModule = {
               key: 'plant',
               title: `全厂 OEE ${plant}%，低于目标 ${OEE_TARGET}%`,
               summary: `近 7 日全厂 OEE ${plant}%；最低 ${[...lines].sort((a, b) => a.oee - b.oee)[0]?.line}；最大损失「${losses[0]?.reason}」${Math.round(losses[0]?.downtimeMin ?? 0)} 分钟`,
-              payload: { oee: plant, target: OEE_TARGET, topLoss: losses[0]?.reason },
+              payload: {
+                oee: plant,
+                target: OEE_TARGET,
+                topLoss: losses[0]?.reason,
+                lossBreakdown: losses.map((l) => `${l.reason} ${Math.round(l.downtimeMin)} 分钟`).join('、'),
+                // Stop causes owned by other departments, so the briefing can link them to their signals.
+                causes: losses.filter((l) => LINKED_CAUSES.includes(l.reason)).map((l) => l.reason),
+              },
             },
           ]
         : [],
@@ -162,7 +172,7 @@ export const productionModule: DomainModule = {
         severity: alarm.length ? ('critical' as const) : ('warn' as const),
         title: alarm.length ? `${h.equipment.id} 振动超限 ${peak} mm/s` : `${h.equipment.id} 出现故障前兆`,
         summary: `${h.equipment.name}（${h.equipment.line}）24 小时内 ${warn.length} 次读数 ≥${VIBRATION_WARN} mm/s，峰值 ${peak}，基线 ${h.baseline}${history}`,
-        payload: { equipmentId: h.equipment.id, line: h.equipment.line, vibration: peak, baseline: h.baseline, warnings: warn.length },
+        payload: { equipmentId: h.equipment.id, line: h.equipment.line, vibration: peak, baseline: h.baseline, warnings: warn.length, causes: ['设备故障'] },
       }];
     });
     syncStateAlerts(deps, 'production', 'vibration_alarm', alerts, '设备健康规则');

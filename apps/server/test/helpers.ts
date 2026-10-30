@@ -1,6 +1,6 @@
 import type { Hono } from 'hono';
 import { createApp, createDeps } from '../src/app.ts';
-import type { Config } from '../src/config.ts';
+import type { Config, Dataset } from '../src/config.ts';
 import { OfflineProvider } from '../src/core/agents/providers.ts';
 import type { AppEnv, Deps } from '../src/core/deps.ts';
 import { openDb } from '../src/db.ts';
@@ -20,10 +20,11 @@ export interface TestEnv {
   bridge<T = any>(path: string, body: unknown): Promise<{ status: number; body: T }>;
 }
 
-export function setup(start = new Date('2026-10-30T09:00:00+08:00')): TestEnv {
+/** Tests run on the fictional fixtures unless they ask for the official pack. */
+export function setup(start = new Date('2026-10-30T09:00:00+08:00'), dataset: Dataset = 'demo'): TestEnv {
   let now = start;
   const config: Config = {
-    dataset: 'demo',
+    dataset,
     port: 0,
     dbPath: ':memory:',
     llm: null,
