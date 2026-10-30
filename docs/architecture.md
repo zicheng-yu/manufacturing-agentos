@@ -82,7 +82,7 @@ npm run typecheck
 
 ## PR 约定
 
-1. 一个 Linear issue 一个分支，分支名用 Linear 生成的 `zicheng/you-xxx-...`，PR 标题带 issue 编号。
+1. **先认领，再开发**：在 Linear 把对应 issue Assign 给自己、状态改为 In Progress，确认保存成功后再开分支写代码；已有负责人时先协调。一个 issue 一个分支，分支名带 issue 编号（如 `codex/you-124-hr-workflows` 或 Linear 生成的分支名），PR 标题带 issue 编号。完整流程见 [贡献指南](../CONTRIBUTING.md)。
 2. 只改自己负责的目录：模块负责人改 `modules/<id>/`，物流仿真改 `modules/logistics/` 与仿真侧代码。需要动 `core/`、`packages/shared/` 或其他模块的，在 PR 里说明原因。
 3. 合并前 `npm test` 与 `npm run typecheck` 必须通过；演示主线测试（`test/platform.test.ts` 的 demo storyline）不能被改坏。
 4. 演示数据一律是虚构的；不要提交真实客户、员工信息，不要提交 `.env`。

@@ -1,9 +1,12 @@
 import type { Level } from '@agentos/shared';
 import type { DomainModule } from '../../core/module.ts';
 import { addDays, isoDate, newId } from '../../core/util.ts';
-import { orgAgent, serviceAgent } from './agents.ts';
+import { orgAgent, recruitmentAgent, serviceAgent, trainingAgent } from './agents.ts';
 import { daysOpen, listAttrition, listDepartments, listPolicies, listPositions } from './data.ts';
+import { listRequests, recordServiceRequest, REQUEST_SCHEMA, ServicePayload } from './requests.ts';
+import { hrRoutes } from './routes.ts';
 import { hrSeedEvents, seedHr } from './seed.ts';
+import { listRoleProfiles } from './talent.ts';
 
 const PRIVATE_FIELDS = ['employeeName', 'reason'];
 
@@ -26,10 +29,12 @@ export const hrModule: DomainModule = {
     );
     CREATE TABLE IF NOT EXISTS hr_requests (
       id TEXT PRIMARY KEY, category TEXT NOT NULL, question TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL
-    );`,
+    );
+    ${REQUEST_SCHEMA}`,
   seed: seedHr,
   seedEvents: hrSeedEvents,
-  agents: [serviceAgent, orgAgent],
+  agents: [serviceAgent, orgAgent, recruitmentAgent, trainingAgent],
+  routes: hrRoutes,
 
   eventTypes: [
     {
@@ -42,9 +47,17 @@ export const hrModule: DomainModule = {
     },
     { type: 'critical_vacancy', label: '关键岗位空缺', severity: 'warn', kind: 'state', dedupeFields: ['positionId'] },
     { type: 'service_backlog', label: '员工服务积压', severity: 'info' },
+    { type: 'service_requested', label: '员工服务转人工', severity: 'info', kind: 'state', dedupeFields: ['accountId', 'questionKey'] },
   ],
 
   signalRules: [
+    {
+      id: 'hr-service-requests', types: ['service_requested'], windowMinutes: 7 * 24 * 60,
+      threshold: 5, severity: 'warn',
+      groupBy: (event) => ServicePayload.safeParse(event.payload).success ? '员工服务' : null,
+      describe: (events) => ({ title: '员工服务请求积压', summary: `7 天内 ${events.length} 条转人工请求尚未解决，请 HR 安排答复` }),
+      playbook: { decision: '安排 HR 分流答复并补充高频问题制度', impact: '未答复请求积压影响员工服务效率', owner: 'HR 经理', dueHours: 24, weight: 1 },
+    },
     {
       id: 'hr-team-attrition',
       types: ['attrition_risk'],
@@ -108,13 +121,13 @@ export const hrModule: DomainModule = {
     const today = isoDate(now);
     const departments = listDepartments(db);
     const positions = listPositions(db);
-    const requests = db.prepare('SELECT * FROM hr_requests ORDER BY created_at DESC').all() as Record<string, unknown>[];
+    const requests = listRequests(db);
     return {
       metrics: [
         { label: '在岗', value: departments.reduce((s, d) => s + d.actual, 0), unit: '人' },
         { label: '缺编', value: departments.reduce((s, d) => s + Math.max(0, d.plan - d.actual), 0), unit: '人' },
         { label: '招聘中岗位', value: positions.filter((p) => p.status === '招聘中').length, unit: '个' },
-        { label: '待处理员工请求', value: requests.filter((r) => r.status === '待处理').length, unit: '条' },
+        { label: '未解决员工请求', value: requests.filter((r) => r.status !== '已解决').length, unit: '条' },
       ],
       tables: [
         {
@@ -141,8 +154,14 @@ export const hrModule: DomainModule = {
         {
           kind: 'table',
           title: '员工服务请求',
-          columns: ['编号', '类别', '问题', '状态', '提交日期'],
-          rows: requests.map((r) => [String(r.id), String(r.category), String(r.question), String(r.status), String(r.created_at)]),
+          columns: ['编号', '类别', '问题', '状态', '提交日期', '答复', '处理人', '关联事件'],
+          rows: requests.map((r) => [r.id, r.category, r.question, r.status, r.createdAt, r.answer || '—', r.handledBy || '—', r.eventId || '—']),
+          note: '在 HR 服务请求操作区填写答复；事件中心的确认 / 解决会同步请求状态。',
+        },
+        {
+          kind: 'table', title: '岗位技能与培训目录', columns: ['岗位编号', '岗位', '技能', '目标等级', '对应课程', '学时'],
+          rows: listRoleProfiles(db).flatMap((role) => role.skills.map((s) => [role.positionId, role.position.title, s.name, s.level, s.course, s.hours])),
+          note: '在智能体工作台选择招聘初筛助手或岗位培训助手，提交结构化技能评估。',
         },
         {
           kind: 'table',
@@ -156,6 +175,10 @@ export const hrModule: DomainModule = {
   },
 
   onEvent({ db, now }, event, { created }) {
+    if (event.type === 'service_requested') {
+      if (created) recordServiceRequest(db, event, now);
+      return;
+    }
     if (event.type !== 'attrition_risk' || !created) return;
     const p = event.payload as Record<string, string | undefined>;
     db.prepare('INSERT INTO hr_attrition (id, department, position, employee_name, reason, reported_at) VALUES (?, ?, ?, ?, ?, ?)').run(

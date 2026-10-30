@@ -7,6 +7,7 @@ import { DataTable } from '../components/DataTable.tsx';
 import { EventRow, SignalDrawer, SignalList, SituationCard, useFlash } from '../components/Live.tsx';
 import { useLive, useSession } from '../session.tsx';
 import { Card, DOMAIN_ICONS, Empty, Spinner } from '../ui.tsx';
+import { HrWorkbench } from './hr/HrWorkbench.tsx';
 
 export function ModulePage() {
   const domain = useParams().domain as Domain;
@@ -76,9 +77,11 @@ export function ModulePage() {
         </div>
       </div>
 
+      {domain === 'hr' ? <HrWorkbench onChanged={() => { void overview.reload(); void events.reload(); void signals.reload(); }} /> : null}
+
       <div className="grid gap-5 xl:grid-cols-3">
         <div className="space-y-5 xl:col-span-2">
-          {tables.map((t) => (
+          {tables.filter((t) => domain !== 'hr' || t.title !== '员工服务请求').map((t) => (
             <Card key={t.title} title={t.title}>
               <DataTable table={t} />
             </Card>
