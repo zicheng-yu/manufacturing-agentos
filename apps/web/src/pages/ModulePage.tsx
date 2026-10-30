@@ -54,7 +54,7 @@ export function ModulePage() {
         </div>
         <div className="flex flex-wrap gap-2">
           {agents.map((a) => (
-            <Link key={a.id} to={`/agents/${a.id}`} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 hover:border-brand-300 hover:text-brand-700">
+            <Link key={a.id} to={a.companyService ? '/employee-service' : '/agents/' + a.id} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 hover:border-brand-300 hover:text-brand-700">
               <Bot className="size-4" />
               {a.name}
             </Link>

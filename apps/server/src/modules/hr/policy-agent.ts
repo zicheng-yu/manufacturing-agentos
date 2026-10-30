@@ -124,7 +124,7 @@ export async function policyContext(ctx: AgentCtx): Promise<AgentContext> {
     ...questions,
     ...citations.map((c) => '**' + escapeMarkdown(c.documentId + ' · ' + c.title + ' · v' + c.version + ' / 条款 ' + c.section) + '**\n\n> ' + escapeMarkdown(c.quote).replace(/\n/g, '\n> ')),
     ...gaps,
-    outcome === 'handoff' ? '已记录员工服务请求，可在本页查看 HR 的答复。' : '',
+    outcome === 'handoff' ? '已记录员工服务请求，可在[我的人工服务请求](/employee-service)查看 HR 的答复。' : '',
   ].filter(Boolean).join('\n\n');
   const handoffQuestion = manual && ctx.history.length
     ? (ctx.history.at(-1)! + '\n补充：' + ctx.input).slice(0, 4000) : ctx.input;
