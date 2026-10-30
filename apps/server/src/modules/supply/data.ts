@@ -119,15 +119,22 @@ export function materialStatus(m: Material): '正常' | '低于安全库存' | '
   return '正常';
 }
 
+export function matchesDimensions(material: Material, text: string): boolean {
+  const dimensions = [...text.matchAll(/(\d+(?:\.\d+)?)\s*(?:英寸|寸)/g)].map((match) => Number(match[1]));
+  const sizes = [...material.name.matchAll(/(\d+(?:\.\d+)?)\s*(?:英寸|寸)/g)].map((match) => Number(match[1]));
+  return dimensions.every((size) => sizes.includes(size));
+}
+
 /** Best material for a question, or null when nothing in the catalogue matches. */
 export function matchMaterial(materials: Material[], text: string, preferCodes: Set<string> = new Set()): Material | null {
   const upper = text.toUpperCase();
   const scored = materials
+    .filter((m) => matchesDimensions(m, text))
     .map((m) => ({
       m,
       score:
         (upper.includes(m.code) ? 100 : 0) +
-        2 * m.aliases.split(/\s+/).filter((a) => a && text.includes(a)).length * 10 +
+        2 * m.aliases.split(/\s+/).filter((a) => a && upper.includes(a.toUpperCase())).length * 10 +
         keywordScore(text, `${m.name} ${m.category}`),
     }))
     .filter((s) => s.score >= 2)

@@ -6,13 +6,14 @@ import {
   listMaterials,
   listQuotes,
   listSuppliers,
+  matchesDimensions,
   materialStatus,
   normalizeQuotes,
   supplierName,
   type Material,
 } from './data.ts';
 import { isInventoryOverview, isSupplierInventoryQuestion, isSupplierQuestion, matchSuppliers, materialCodes, resolveMaterial, unknownSuppliers } from './lookup.ts';
-import { riskEvents, riskTable, supplierRisks } from './risk.ts';
+import { riskBlocks, riskEvents, riskTable, supplierRisks } from './risk.ts';
 
 /** Quantity to bring cover back to safety stock plus one week, counting everything already on order. */
 export function replenishQty(m: Material): number {
@@ -85,12 +86,12 @@ export const sourcingAgent: AgentDefinition = {
     const risks = supplierRisks(db, now);
     const selectedRisks = requested.length ? risks.filter((r) => requested.some((s) => s.id === r.supplier.id)) : risks;
     // A supplier-only question gets that supplier's own evidence, with no guessed material.
-    if ((requested.length || /供应商.*风险|风险.*供应商/.test(input)) && isSupplierQuestion(suppliers, input)) {
+    if ((requested.length || input.includes('供应商')) && isSupplierQuestion(suppliers, input)) {
       return {
         headline: requested.length ? `${requested.map((s) => s.name).join('、')}：供应商资料与风险` : '供应商风险概览',
-        blocks: [{ title: '供应商资料', lines: selectedRisks.map((r) => `${r.supplier.name}：${r.supplier.category}，${r.supplier.region}，标准交期 ${r.supplier.leadTimeDays} 天，风险分 ${r.score}/100（${r.level}）`) }],
+        blocks: [{ title: '供应商资料', lines: selectedRisks.map((r) => `${r.supplier.name}：${r.supplier.category}，${r.supplier.region}，标准交期 ${r.supplier.leadTimeDays} 天`) }, ...riskBlocks(selectedRisks)],
         facts: selectedRisks.map((r) => `${r.supplier.name}：准交率 ${Math.round(r.supplier.onTimeRate * 100)}%，近30天 ${r.delays} 单延迟、${r.qualityCases} 起关联品质案例`),
-        pending: ['风险分是演示规则评分，品质案例关联需核实；如需比价请补充料号'],
+        pending: ['风险分是演示规则评分，品质案例关联需核实；如需比价请补充料号', ...selectedRisks.filter((r) => r.conflictIds.length).map((r) => `${r.supplier.name}：${r.conflictIds.length} 条事件的供应商归属字段不一致，需核实`)],
         actions: selectedRisks.filter((r) => r.score >= 30).map((r) => ({ title: `核实${r.supplier.name}交付承诺与品质关联，确认备选货源`, owner: '供应链经理', due: isoDate(addDays(now, 1)) })),
         artifacts: [riskTable(selectedRisks)],
         events: riskEvents(selectedRisks),
@@ -113,7 +114,7 @@ export const sourcingAgent: AgentDefinition = {
     if (quotes.length === 0) {
       return {
         headline: `${material.name} 暂无可比报价`,
-        blocks: [{ title: '物料现状', lines: stock }, eventBlock],
+        blocks: [{ title: '物料现状', lines: stock }, eventBlock, ...riskBlocks(relevantRisks)],
         facts: [stockLine(material)],
         pending: [`${material.code} 需要先向至少 3 家合格供应商询价`],
         actions: [{ title: `${material.code} 发起询价`, owner: '供应链经理', due: isoDate(addDays(now, 2)) }],
@@ -157,13 +158,14 @@ export const sourcingAgent: AgentDefinition = {
           return q ? `${s.name}：含税 ${q.priceWithTax.toFixed(2)} 元，采购量 ${q.orderQty}，到货前缺口 ${round(q.gapDays, 1)} 天；${q.flags.join('；') || '无额外提示'}。切换前仍需确认交期与品质验证。` : `${s.name}已收录，但暂无 ${material.code} 报价，不能据其他物料价格推断，需先询价`;
         }) }] : []),
         eventBlock,
+        ...riskBlocks(relevantRisks),
       ],
       facts: [
         `${material.code} 可用 ${round(material.cover, 1)} 天，安全天数 ${material.safetyDays} 天`,
         `${ranked.length} 家报价归一后含税单价 ${Math.min(...prices).toFixed(2)}–${Math.max(...prices).toFixed(2)} 元`,
         ...events.map((e) => `${e.typeLabel}：${e.title}`),
       ],
-      pending: [...missingQuotes.map((s) => `${s.name}暂无 ${material.code} 报价，需询价`), ...(short
+      pending: [...missingQuotes.map((s) => `${s.name}暂无 ${material.code} 报价，需询价`), ...relevantRisks.filter((r) => r.conflictIds.length).map((r) => `${r.supplier.name}：${r.conflictIds.length} 条事件的供应商归属字段不一致，需核实`), ...(short
         ? [...best.flags.filter((f) => f.includes('确认')), ...(newSupplier ? [`${best.supplierName}为新供应商，需完成来料质量验证`] : [])]
         : [])],
       suggestions: expediteOnly
@@ -223,7 +225,7 @@ export const inventoryAgent: AgentDefinition = {
     const unknown = unknownSuppliers(suppliers, input, all);
     if (unknown.length) return supplierOverview(ctx, unknown);
     const codes = materialCodes(input);
-    if (codes.some((code) => !all.some((m) => m.code === code))) return supplierOverview(ctx);
+    if (codes.some((code) => !all.some((m) => m.code === code && matchesDimensions(m, input)))) return supplierOverview(ctx);
     const requested = matchSuppliers(suppliers, input);
     const direct = resolveMaterial(all, suppliers, input, [], new Set());
     const overview = isInventoryOverview(input);

@@ -2,6 +2,7 @@ import type { AgentResult } from '@agentos/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ingestEvent, listEvents } from '../../core/events.ts';
 import { listTasks } from '../../core/memory.ts';
+import type { ChatMessage } from '../../core/agents/providers.ts';
 import { listSignals } from '../../core/signals.ts';
 import { addDays } from '../../core/util.ts';
 import { setup, type TestEnv } from '../../../test/helpers.ts';
@@ -109,6 +110,16 @@ describe('supply catalogue and follow-ups', () => {
     expect(table.title).toBe('供应商风险评分');
     expect(table.kind === 'table' && table.rows.map((r) => r[0])).toEqual(['昆山精联电子']);
   });
+
+  it('treats a supplier-list question as a catalogue request rather than an unknown company', async () => {
+    for (const question of ['供应商有哪些？', '所有供应商风险怎么样？']) {
+      const response = await ask(question);
+      expect(response.turn.result.title).not.toContain('未收录');
+      const table = response.turn.result.artifacts[0];
+      expect(table.kind === 'table' && table.rows.length).toBe(9);
+      expect(response.turn.result.actions.every((a) => !a.title.includes('询价'))).toBe(true);
+    }
+  });
 });
 
 describe('quote normalization', () => {
@@ -206,6 +217,24 @@ describe('inventory selection and purchasing actions', () => {
     expect(table.kind === 'table' && table.rows[0][7]).toBe(0);
     expect(response.turn.result.actions).toEqual([]);
   });
+
+  it('distinguishes the requested FPC dimensions and rejects an unrecorded dimension', async () => {
+    const response = await inventory('10.25 英寸的 FPC 库存');
+    const table = response.turn.result.artifacts[0];
+    expect(table.kind === 'table' && table.rows.map((r) => r[0])).toEqual(['FPC-1025']);
+    const unknown = await inventory('15 英寸的 FPC 库存');
+    expect(unknown.turn.result.title).toContain('未收录');
+    expect(unknown.turn.result.eventIds).toEqual([]);
+    const conflict = await inventory('FPC-1203 10.25 英寸库存');
+    expect(conflict.turn.result.artifacts.every((a) => a.title !== '补货建议单')).toBe(true);
+  });
+
+  it('supports common stock follow-ups without losing the selected material', async () => {
+    const first = await inventory('驱动芯片库存');
+    const response = await inventory('那库存还够几天？', first.conversation.id);
+    const table = response.turn.result.artifacts[0];
+    expect(table.kind === 'table' && table.rows.map((r) => r[0])).toEqual(['DIC-0870']);
+  });
 });
 
 describe('supplier risk evidence and signals', () => {
@@ -278,5 +307,82 @@ describe('supplier risk evidence and signals', () => {
     const risk = supplierRisks(env.deps.db, env.deps.clock()).find((r) => r.supplier.id === 'SUP-JL')!;
     expect(risk.score).toBe(100);
     expect(risk.level).toBe('高');
+  });
+
+  it('does not double-attribute conflicting supplier fields in quality evidence', () => {
+    ingestEvent(env.deps, { domain: 'quality', type: 'customer_complaint', payload: {
+      complaintId: 'CONFLICT', supplierId: 'SUP-XC', supplier: '昆山精联电子', symptom: '包装破损',
+    }, source: { channel: 'bridge' } });
+    const risks = supplierRisks(env.deps.db, env.deps.clock());
+    expect(risks.find((r) => r.supplier.id === 'SUP-XC')!.qualityCases).toBe(1);
+    expect(risks.find((r) => r.supplier.id === 'SUP-XC')!.conflictIds).toHaveLength(1);
+    expect(risks.find((r) => r.supplier.id === 'SUP-JL')!.qualityCases).toBe(0);
+    env.advance(11);
+    ingestEvent(env.deps, { domain: 'quality', type: 'customer_complaint', payload: {
+      complaintId: 'CONFLICT', supplierId: 'SUP-JL', supplier: '昆山精联电子', symptom: '包装破损',
+    }, source: { channel: 'bridge' } });
+    const corrected = supplierRisks(env.deps.db, env.deps.clock());
+    expect(corrected.find((r) => r.supplier.id === 'SUP-JL')!.qualityCases).toBe(1);
+    expect(corrected.find((r) => r.supplier.id === 'SUP-XC')!.qualityCases).toBe(0);
+  });
+
+  it('uses the recorded order supplier instead of a conflicting delay-report supplier', () => {
+    ingestEvent(env.deps, { domain: 'supply', type: 'inbound_delay', payload: {
+      orderId: 'PO-2611', delayDays: 1, supplierId: 'SUP-XC',
+    }, source: { channel: 'bridge' } });
+    const risks = supplierRisks(env.deps.db, env.deps.clock());
+    expect(risks.find((r) => r.supplier.id === 'SUP-JL')!.delays).toBe(1);
+    expect(risks.find((r) => r.supplier.id === 'SUP-JL')!.conflictIds).toHaveLength(1);
+    expect(risks.find((r) => r.supplier.id === 'SUP-XC')!.delays).toBe(0);
+  });
+
+  it('does not guess a known supplier from a name when the report gives an unknown explicit ID', () => {
+    ingestEvent(env.deps, { domain: 'quality', type: 'customer_complaint', payload: {
+      complaintId: 'UNKNOWN-ID', supplierId: 'SUP-NOT-RECORDED', supplier: '昆山精联电子', symptom: '包装破损',
+    }, source: { channel: 'bridge' } });
+    expect(supplierRisks(env.deps.db, env.deps.clock()).every((r) => r.qualityCases === 0)).toBe(true);
+  });
+
+  it('keeps a recurrence linked to the reported complaint supplier when the historical case names another one', () => {
+    ingestEvent(env.deps, { domain: 'quality', type: 'customer_complaint', payload: {
+      complaintId: 'RECURRENCE-CONFLICT', supplierId: 'SUP-XC', supplier: '无锡信创柔电', symptom: 'FPC 金手指氧化', category: 'FPC 接触不良',
+    }, source: { channel: 'bridge' } });
+    expect(listEvents(env.deps, { domains: ['quality'] }).some((e) => e.type === 'defect_recurrence' && e.payload.complaintId === 'RECURRENCE-CONFLICT')).toBe(true);
+    const risks = supplierRisks(env.deps.db, env.deps.clock());
+    expect(risks.find((r) => r.supplier.id === 'SUP-XC')!.qualityCases).toBe(1);
+    expect(risks.find((r) => r.supplier.id === 'SUP-JL')!.qualityCases).toBe(0);
+  });
+});
+
+describe('supply context through model and fallback paths', () => {
+  it('includes the computed score, scoring basis and attribution conflicts in the model context', async () => {
+    ingestEvent(env.deps, { domain: 'quality', type: 'customer_complaint', payload: {
+      complaintId: 'MODEL-CONFLICT', supplierId: 'SUP-JL', supplier: '无锡信创柔电', symptom: '包装破损',
+    }, source: { channel: 'bridge' } });
+    let captured: ChatMessage[] = [];
+    env.deps.provider = {
+      mode: 'llm', model: 'test-provider',
+      async complete(messages) {
+        captured = messages;
+        return JSON.stringify({ title: '供应商分析', answer: '按给定规则评分，先核实归属字段。' });
+      },
+    };
+    const response = await ask('精联风险怎么样？');
+    const context = captured.at(-1)!.content;
+    expect(context).toContain('29/100');
+    expect(context).toContain('近30天每单延迟10分');
+    expect(context).toContain('1 条归属字段不一致，待核实');
+    expect(response.turn.result.pending.join(' ')).toContain('归属字段不一致');
+    const table = response.turn.result.artifacts[0];
+    expect(table.kind === 'table' && table.rows[0][6]).toBe(1);
+  });
+
+  it('preserves scoped inventory and valid actions when the model provider fails', async () => {
+    env.deps.provider = { mode: 'llm', model: 'test-provider', async complete() { throw new Error('test timeout'); } };
+    const response = await inventory('驱动芯片库存');
+    const table = response.turn.result.artifacts[0];
+    expect(table.kind === 'table' && table.rows.map((r) => r[0])).toEqual(['DIC-0870']);
+    expect(response.turn.result.pending.join(' ')).toContain('已按规则分析作答');
+    expect(response.turn.result.actions).toEqual([]);
   });
 });
