@@ -6,26 +6,18 @@ import {
   listMaterials,
   listQuotes,
   listSuppliers,
-  matchMaterial,
   materialStatus,
   normalizeQuotes,
   supplierName,
   type Material,
 } from './data.ts';
+import { isSupplierQuestion, matchSuppliers, resolveMaterial, unknownSuppliers } from './lookup.ts';
+import { riskEvents, riskTable, supplierRisks } from './risk.ts';
 
 /** Quantity to bring cover back to safety stock plus one week, counting everything already on order. */
 export function replenishQty(m: Material): number {
   const target = m.dailyUsage * (m.safetyDays + 7);
   return Math.max(0, Math.ceil((target - m.onHand - m.inTransit) / 100) * 100);
-}
-
-/** The material a question is about; follow-ups without one reuse the last material mentioned. */
-function resolveMaterial(materials: Material[], input: string, history: string[], prefer: Set<string>): Material | null {
-  for (const text of [input, ...[...history].reverse()]) {
-    const found = matchMaterial(materials, text, prefer);
-    if (found) return found;
-  }
-  return null;
 }
 
 function orderLines(m: Material): string[] {
@@ -45,10 +37,12 @@ function relatedEvents(events: AgentOSEvent[], m: Material, supplierNames: strin
   );
 }
 
-function supplierOverview(ctx: Parameters<AgentDefinition['context']>[0]): AgentContext {
+function supplierOverview(ctx: Parameters<AgentDefinition['context']>[0], unknown: string[] = []): AgentContext {
   const suppliers = listSuppliers(ctx.db).sort((a, b) => b.onTimeRate - a.onTimeRate);
+  const subject = unknown.length ? unknown.join('、') : ctx.input;
+  const missing = `未收录或未匹配到「${subject}」，无法确认其报价、库存或资质`;
   return {
-    headline: '没有匹配到具体物料，以下是合格供应商概览',
+    headline: missing,
     blocks: [
       {
         title: '合格供应商（按准交率排序）',
@@ -56,7 +50,8 @@ function supplierOverview(ctx: Parameters<AgentDefinition['context']>[0]): Agent
       },
       { title: '物料库', lines: [listMaterials(ctx.db, ctx.now).map((m) => `${m.code} ${m.name}`).join('；')] },
     ],
-    pending: ['问题中的物料不在物料库中，如需比价请说明料号或物料名称'],
+    pending: [missing, '请补充准确料号、物料规格或供应商全称，确认收录后再比价'],
+    actions: [{ title: `核实「${subject}」的物料规格或供应商资质并发起询价`, owner: '供应链经理', due: isoDate(addDays(ctx.now, 2)) }],
     artifacts: [
       {
         kind: 'table',
@@ -79,14 +74,34 @@ export const sourcingAgent: AgentDefinition = {
   context(ctx) {
     const { db, now, input, history, deps } = ctx;
     const materials = listMaterials(db, now);
+    const suppliers = listSuppliers(db);
+    const unknown = unknownSuppliers(suppliers, input, materials);
+    if (unknown.length) return supplierOverview(ctx, unknown);
+    const requested = matchSuppliers(suppliers, input);
     const quoted = new Set(
       (db.prepare('SELECT DISTINCT material_code FROM supply_quotes').all() as { material_code: string }[]).map((r) => r.material_code),
     );
-    const material = resolveMaterial(materials, input, history, quoted);
+    const material = resolveMaterial(materials, suppliers, input, history, quoted);
+    const risks = supplierRisks(db, now);
+    const selectedRisks = requested.length ? risks.filter((r) => requested.some((s) => s.id === r.supplier.id)) : risks;
+    // A supplier-only question gets that supplier's own evidence, with no guessed material.
+    if (!material && (requested.length || /供应商.*风险|风险.*供应商/.test(input)) && isSupplierQuestion(suppliers, input)) {
+      return {
+        headline: requested.length ? `${requested.map((s) => s.name).join('、')}：供应商资料与风险` : '供应商风险概览',
+        blocks: [{ title: '供应商资料', lines: selectedRisks.map((r) => `${r.supplier.name}：${r.supplier.category}，${r.supplier.region}，标准交期 ${r.supplier.leadTimeDays} 天，风险分 ${r.score}/100（${r.level}）`) }],
+        facts: selectedRisks.map((r) => `${r.supplier.name}：准交率 ${Math.round(r.supplier.onTimeRate * 100)}%，近30天 ${r.delays} 单延迟、${r.qualityCases} 起关联品质案例`),
+        pending: ['风险分是演示规则评分，品质案例关联需核实；如需比价请补充料号'],
+        actions: selectedRisks.filter((r) => r.score >= 30).map((r) => ({ title: `核实${r.supplier.name}交付承诺与品质关联，确认备选货源`, owner: '供应链经理', due: isoDate(addDays(now, 1)) })),
+        artifacts: [riskTable(selectedRisks)],
+        events: riskEvents(selectedRisks),
+      };
+    }
     if (!material) return supplierOverview(ctx);
 
     const quotes = listQuotes(db, material.code);
     const current = supplierName(db, material.supplierId);
+    const relevantRisks = risks.filter((r) => r.supplier.id === material.supplierId || quotes.some((q) => q.supplierId === r.supplier.id));
+    const missingQuotes = requested.filter((s) => !quotes.some((q) => q.supplierId === s.id));
     const events = relatedEvents(
       listEvents(deps, { domains: ['supply', 'quality'], status: 'unresolved', limit: 100 }),
       material,
@@ -102,6 +117,8 @@ export const sourcingAgent: AgentDefinition = {
         facts: [stockLine(material)],
         pending: [`${material.code} 需要先向至少 3 家合格供应商询价`],
         actions: [{ title: `${material.code} 发起询价`, owner: '供应链经理', due: isoDate(addDays(now, 2)) }],
+        artifacts: [riskTable(relevantRisks)],
+        events: riskEvents(relevantRisks),
       };
     }
 
@@ -130,6 +147,10 @@ export const sourcingAgent: AgentDefinition = {
         { title: '物料现状', lines: stock },
         { title: `报价归一（${short ? '需求' : '参考量'} ${need} ${material.unit}）`, lines },
         { title: short ? '推荐' : '结论', lines: recommend },
+        ...(requested.length ? [{ title: '指定供应商核对', lines: requested.map((s) => {
+          const q = ranked.find((quote) => quote.supplierId === s.id);
+          return q ? `${s.name}：含税 ${q.priceWithTax.toFixed(2)} 元，采购量 ${q.orderQty}，到货前缺口 ${round(q.gapDays, 1)} 天；${q.flags.join('；') || '无额外提示'}。切换前仍需确认交期与品质验证。` : `${s.name}已收录，但暂无 ${material.code} 报价，不能据其他物料价格推断，需先询价`;
+        }) }] : []),
         eventBlock,
       ],
       facts: [
@@ -137,13 +158,13 @@ export const sourcingAgent: AgentDefinition = {
         `${ranked.length} 家报价归一后含税单价 ${Math.min(...prices).toFixed(2)}–${Math.max(...prices).toFixed(2)} 元`,
         ...events.map((e) => `${e.typeLabel}：${e.title}`),
       ],
-      pending: short
+      pending: [...missingQuotes.map((s) => `${s.name}暂无 ${material.code} 报价，需询价`), ...(short
         ? [...best.flags.filter((f) => f.includes('确认')), ...(newSupplier ? [`${best.supplierName}为新供应商，需完成来料质量验证`] : [])]
-        : [],
+        : [])],
       suggestions: short
         ? [`${material.code} 优先向${best.supplierName}下单 ${best.orderQty} ${material.unit}，现有在途订单保留`]
         : [`${material.code} 维持现有采购节奏，跟踪价格变化`],
-      actions: short
+      actions: [...missingQuotes.map((s) => ({ title: `向${s.name}询价 ${material.code} 并核实供货资质`, owner: '供应链经理', due: isoDate(addDays(now, 2)) })), ...(short
         ? [
             {
               title: `确认${best.supplierName}交期与付款条件后，下达 ${material.code} 采购单 ${best.orderQty} ${material.unit}`,
@@ -151,7 +172,8 @@ export const sourcingAgent: AgentDefinition = {
               due: isoDate(addDays(now, 1)),
             },
           ]
-        : [],
+        : [])],
+      events: riskEvents(relevantRisks),
       artifacts: [
         {
           kind: 'table',
@@ -172,6 +194,7 @@ export const sourcingAgent: AgentDefinition = {
           ]),
           note: '排序综合含税单价、到货前缺口天数与准交率；不含税报价按 13% 增值税换算',
         },
+        riskTable(relevantRisks),
       ],
     };
   },

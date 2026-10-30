@@ -4,6 +4,7 @@ import { addDays, isoDate, round } from '../../core/util.ts';
 import { inventoryAgent, sourcingAgent } from './agents.ts';
 import { coverDays, listMaterials, listOrders, materialStatus, supplierName } from './data.ts';
 import { seedSupply, supplySeedEvents } from './seed.ts';
+import { riskEvents, riskTable, supplierRisks } from './risk.ts';
 
 export const supplyModule: DomainModule = {
   id: 'supply',
@@ -40,6 +41,22 @@ export const supplyModule: DomainModule = {
   ],
 
   signalRules: [
+    {
+      id: 'supply-supplier-risk',
+      types: ['supplier_risk'],
+      windowMinutes: 30 * 24 * 60,
+      threshold: 1,
+      severity: 'warn',
+      groupBy: (e) => String(e.payload.supplierId ?? '') || null,
+      describe: (events) => ({ title: events.at(-1)!.title, summary: events.at(-1)!.summary }),
+      playbook: {
+        decision: '核实供应商交付承诺与品质关联，并确认备选货源',
+        impact: '交付与品质风险叠加，可能影响物料供应连续性；评分不代表责任认定',
+        owner: '供应链经理与品质经理',
+        dueHours: 24,
+        weight: 2,
+      },
+    },
     {
       id: 'supply-inbound-delays',
       types: ['inbound_delay'],
@@ -131,6 +148,7 @@ export const supplyModule: DomainModule = {
         { label: '低于安全库存', value: materials.filter((m) => materialStatus(m) !== '正常').length, unit: '项' },
       ],
       tables: [
+        riskTable(supplierRisks(db, now)),
         {
           kind: 'table',
           title: '库存与可用天数',
@@ -203,6 +221,9 @@ export const supplyModule: DomainModule = {
         source: { channel: event.source.channel, actor: '库存规则' },
         at: now,
       });
+    }
+    for (const risk of riskEvents(supplierRisks(db, now)).filter((r) => r.payload?.supplierId === order.supplierId)) {
+      emit({ ...risk, at: now });
     }
   },
 };

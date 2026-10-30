@@ -1,0 +1,193 @@
+import type { AgentResult } from '@agentos/shared';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { ingestEvent, listEvents } from '../../core/events.ts';
+import { listTasks } from '../../core/memory.ts';
+import { listSignals } from '../../core/signals.ts';
+import { addDays } from '../../core/util.ts';
+import { setup, type TestEnv } from '../../../test/helpers.ts';
+import { listMaterials, listQuotes, listSuppliers, normalizeQuotes } from './data.ts';
+import { matchSuppliers, resolveMaterial, unknownSuppliers } from './lookup.ts';
+import { supplierRisks } from './risk.ts';
+
+let env: TestEnv;
+beforeEach(() => { env = setup(); });
+afterEach(() => { env.deps.db.close(); });
+
+async function ask(question: string, conversationId?: string) {
+  const cookie = await env.login('supply');
+  const response = await env.send('POST', '/api/agents/supply.sourcing/turns', { question, conversationId }, { Cookie: cookie });
+  expect(response.status).toBe(200);
+  return response.body as { conversation: { id: string }; turn: { id: string; result: AgentResult } };
+}
+
+function complaint(id: string, at = env.deps.clock()) {
+  return ingestEvent(env.deps, {
+    domain: 'quality', type: 'customer_complaint', payload: { complaintId: id, supplier: '昆山精联电子', symptom: 'FPC 金手指氧化', category: 'FPC 接触不良' },
+    source: { channel: 'bridge' }, at,
+  });
+}
+
+describe('supply catalogue and follow-ups', () => {
+  it('recognises supplier full names, short names and exact IDs without mixing similar brands', () => {
+    const suppliers = listSuppliers(env.deps.db);
+    for (const name of ['昆山精联电子', '昆山精联', '精联', 'sup-jl']) {
+      expect(matchSuppliers(suppliers, name).map((s) => s.id)).toEqual(['SUP-JL']);
+    }
+    expect(matchSuppliers(suppliers, 'SUP-JL-NEW')).toEqual([]);
+    expect(matchSuppliers(suppliers, '精铝').map((s) => s.id)).toEqual(['SUP-JM']);
+  });
+
+  it('does not classify known material names as unknown companies', () => {
+    const suppliers = listSuppliers(env.deps.db);
+    const materials = listMaterials(env.deps.db, env.deps.clock());
+    for (const question of ['FPC 柔性电路板怎么比价', '光学胶材料找谁买', '精联的柔性板有货吗']) {
+      expect(unknownSuppliers(suppliers, question, materials)).toEqual([]);
+    }
+    expect(unknownSuppliers(suppliers, 'FPC找新星电子报价', materials)).toEqual(['新星电子']);
+    expect(unknownSuppliers(suppliers, 'FPC找新星报价', materials)).toEqual(['新星']);
+    expect(unknownSuppliers(suppliers, 'FPC SUP-JL-NEW 有报价吗', materials)).toEqual(['SUP-JL-NEW']);
+  });
+
+  it('keeps a supplier/payment follow-up on the earlier material and evaluates the named alternative', async () => {
+    const first = await ask('柔性板快断货了，几家供应商怎么选？');
+    const follow = await ask('东莞德源要预付 30%，换无锡信创行不行？', first.conversation.id);
+    expect(follow.turn.result.artifacts[0].title).toBe('FPC-1203 比价表');
+    expect(follow.turn.result.answer).toContain('无锡信创柔电：含税 19.10 元');
+    expect(follow.turn.result.answer).toContain('指定供应商核对');
+  });
+
+  it('does not reuse earlier stock or prices for an explicitly unknown SKU or new subject', async () => {
+    const first = await ask('FPC-1203 怎么选？');
+    for (const question of ['FPC-9999 有没有报价', '那 MLCC 电容呢', '电池找精联买怎么样']) {
+      const response = await ask(question, first.conversation.id);
+      expect(response.turn.result.title).toContain('未收录');
+      expect(response.turn.result.artifacts[0].title).toBe('合格供应商');
+      expect(response.turn.result.actions.some((a) => a.title.includes('询价'))).toBe(true);
+    }
+    const tasks = listTasks(env.deps.db, ['supply']);
+    expect(tasks.some((t) => t.title.includes('FPC-9999') && t.title.includes('询价'))).toBe(true);
+  });
+
+  it('does not substitute an earlier material for an unknown explicit code even when the category matches', () => {
+    const materials = listMaterials(env.deps.db, env.deps.clock());
+    const suppliers = listSuppliers(env.deps.db);
+    expect(resolveMaterial(materials, suppliers, 'FPC-9999', ['FPC-1203'], new Set())).toBeNull();
+    expect(resolveMaterial(materials, suppliers, '那怎么选', ['FPC-1203', '那 MLCC 电容呢'], new Set())).toBeNull();
+    expect(resolveMaterial(materials, suppliers, '驱动芯片', [], new Set())?.code).toBe('DIC-0870');
+  });
+
+  it('says a named supplier is unrecorded and creates an enquiry rather than inventing a quote', async () => {
+    for (const question of ['FPC-1203 找新星电子报价', 'FPC-1203 SUP-NEW 有没有报价']) {
+      const response = await ask(question);
+      expect(response.turn.result.title).toContain('未收录');
+      expect(response.turn.result.artifacts[0].title).toBe('合格供应商');
+      expect(response.turn.result.actions[0].title).toContain('询价');
+    }
+  });
+
+  it('distinguishes a known supplier with no quote for the selected material', async () => {
+    const response = await ask('FPC-1203 找芯平有报价吗？');
+    expect(response.turn.result.pending.join(' ')).toContain('上海芯平半导体暂无 FPC-1203 报价');
+    expect(response.turn.result.actions.some((a) => a.title.includes('向上海芯平半导体询价 FPC-1203'))).toBe(true);
+  });
+
+  it('answers a supplier-only question without choosing a material', async () => {
+    for (const question of ['精联风险怎么样？', '东莞德源电路风险怎么样？']) {
+      const response = await ask(question);
+      expect(response.turn.result.artifacts[0].title).toBe('供应商风险评分');
+      expect(response.turn.result.artifacts[0].kind).toBe('table');
+      expect(response.turn.result.actions).toEqual([]);
+    }
+  });
+});
+
+describe('quote normalization', () => {
+  it('compares three suppliers with tax conversion, MOQ excess, total price and shortage gap', () => {
+    const ranked = normalizeQuotes(listQuotes(env.deps.db, 'FPC-1203'), 2700, 1.7);
+    expect(ranked).toHaveLength(3);
+    expect(ranked[0].supplierId).toBe('SUP-DY');
+    const xc = ranked.find((q) => q.supplierId === 'SUP-XC')!;
+    expect(xc.priceWithTax).toBeCloseTo(19.097, 3);
+    expect(xc.orderQty).toBe(5000);
+    expect(xc.orderTotal).toBeCloseTo(95485);
+    expect(xc.gapDays).toBeCloseTo(8.3);
+    expect(xc.flags.join(' ')).toContain('多采 2300');
+    const jl = ranked.find((q) => q.supplierId === 'SUP-JL')!;
+    expect(jl.priceWithTax).toBe(18.6);
+    expect(jl.orderQty).toBe(2700);
+    expect(ranked[0].flags.join(' ')).toContain('财务确认');
+  });
+});
+
+describe('supplier risk evidence and signals', () => {
+  it('counts one delay per order and one quality case per complaint even on duplicate or recurrence reports', () => {
+    complaint('C-TEST');
+    complaint('C-TEST');
+    for (let i = 0; i < 2; i++) {
+      ingestEvent(env.deps, { domain: 'supply', type: 'inbound_delay', payload: { orderId: 'PO-2611', delayDays: 1 }, source: { channel: 'bridge' } });
+      env.advance(11);
+    }
+    const risk = supplierRisks(env.deps.db, env.deps.clock()).find((r) => r.supplier.id === 'SUP-JL')!;
+    expect(risk.delays).toBe(1);
+    expect(risk.qualityCases).toBe(1);
+    expect(risk.score).toBe(39);
+    const events = listEvents(env.deps, { domains: ['supply'] }).filter((e) => e.type === 'supplier_risk');
+    expect(events).toHaveLength(1);
+    expect(events[0].count).toBe(1);
+    expect(events[0].payload.riskScore).toBe(39);
+    expect(events[0].payload.evidenceIds).toEqual(expect.arrayContaining(risk.evidenceIds));
+    expect(listSignals(env.deps, ['supply']).some((s) => s.ruleId === 'supply-supplier-risk')).toBe(true);
+  });
+
+  it('uses a 30-day history window including resolved records and excludes future records', () => {
+    complaint('OLD', addDays(env.deps.clock(), -31));
+    complaint('FUTURE', addDays(env.deps.clock(), 1));
+    const recent = complaint('RECENT');
+    env.deps.db.prepare("UPDATE events SET status = 'resolved' WHERE id = ?").run(recent.event.id);
+    const risk = supplierRisks(env.deps.db, env.deps.clock()).find((r) => r.supplier.id === 'SUP-JL')!;
+    expect(risk.qualityCases).toBe(1);
+    expect(risk.score).toBe(29);
+  });
+
+  it('does not attribute an unlinked material complaint to a supplier', () => {
+    ingestEvent(env.deps, { domain: 'quality', type: 'customer_complaint', payload: { complaintId: 'UNLINKED', materialCode: 'FPC-1203', symptom: '包装破损' }, source: { channel: 'bridge' } });
+    expect(supplierRisks(env.deps.db, env.deps.clock()).find((r) => r.supplier.id === 'SUP-JL')!.qualityCases).toBe(0);
+  });
+
+  it('publishes a deduplicated risk event and signal when the agent observes linked quality evidence', async () => {
+    complaint('C-ONE');
+    complaint('C-TWO');
+    const response = await ask('精联风险怎么样？');
+    expect(response.turn.result.eventIds).toHaveLength(1);
+    const again = await ask('精联风险怎么样？');
+    expect(again.turn.result.eventIds).toEqual(response.turn.result.eventIds);
+    const risk = listEvents(env.deps, { domains: ['supply'] }).find((e) => e.type === 'supplier_risk')!;
+    expect(risk.count).toBe(1);
+    expect(risk.payload.riskScore).toBe(44);
+    expect(risk.payload.evidenceIds).toBeInstanceOf(Array);
+    expect(listSignals(env.deps, ['supply']).some((s) => s.eventIds.includes(risk.id))).toBe(true);
+  });
+
+  it('updates a computed score with new evidence while keeping an external risk report intact', async () => {
+    complaint('C-ONE');
+    ingestEvent(env.deps, { domain: 'supply', type: 'inbound_delay', payload: { orderId: 'PO-2611', delayDays: 1 }, source: { channel: 'bridge' } });
+    const manual = ingestEvent(env.deps, { domain: 'supply', type: 'supplier_risk', summary: '人工报告：产能紧张待核', payload: { supplierId: 'SUP-JL' }, source: { channel: 'manual' } });
+    complaint('C-TWO');
+    await ask('精联风险怎么样？');
+    const events = listEvents(env.deps, { domains: ['supply'] }).filter((e) => e.type === 'supplier_risk');
+    expect(events).toHaveLength(2);
+    expect(events.find((e) => e.id === manual.event.id)!.summary).toBe('人工报告：产能紧张待核');
+    expect(events.find((e) => e.id !== manual.event.id)!.payload.riskScore).toBe(54);
+  });
+
+  it('caps each scoring component and the total at 100', () => {
+    env.deps.db.prepare("UPDATE supply_suppliers SET on_time_rate = 0 WHERE id = 'SUP-JL'").run();
+    for (let i = 0; i < 5; i++) {
+      complaint(`C-${i}`);
+      ingestEvent(env.deps, { domain: 'supply', type: 'inbound_delay', payload: { orderId: `EXTERNAL-${i}`, supplierId: 'SUP-JL' }, source: { channel: 'bridge' } });
+    }
+    const risk = supplierRisks(env.deps.db, env.deps.clock()).find((r) => r.supplier.id === 'SUP-JL')!;
+    expect(risk.score).toBe(100);
+    expect(risk.level).toBe('高');
+  });
+});
