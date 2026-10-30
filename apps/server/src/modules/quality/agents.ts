@@ -83,6 +83,15 @@ export const complaintAgent: AgentDefinition = {
 
 const DRAFT_WORDS = /起草|生成|编写|草案|写一份|做一份/;
 
+function requestedSteps(input: string): number[] {
+  const explicit = [...new Set([...input.matchAll(/\bD([1-8])\b/gi)].map((m) => Number(m[1])))];
+  if (explicit.length) return explicit;
+  if (DRAFT_WORDS.test(input) && /8d/i.test(input)) return [];
+  if (/根因|失效分析/.test(input)) return [4];
+  if (/验证/.test(input)) return [6];
+  return [];
+}
+
 export const capaAgent: AgentDefinition = {
   id: 'quality.capa',
   module: 'quality',
@@ -99,7 +108,8 @@ export const capaAgent: AgentDefinition = {
     const capa = listCapa(db);
     const resolved = qualityQuery(db, input, history);
     if (resolved.missing.length || resolved.complaintIds.length > 1) return clarification(resolved.missing.length ? resolved.missing : resolved.complaintIds, now);
-    const wantsDraft = DRAFT_WORDS.test(input) || (/8d/i.test(input) && resolved.complaintIds.length === 1 && !/逾期|整改项|督办|进度/.test(input));
+    const steps = requestedSteps(input);
+    const wantsDraft = steps.length > 0 || DRAFT_WORDS.test(input) || (/8d/i.test(input) && resolved.complaintIds.length === 1 && !/逾期|整改项|督办|进度/.test(input));
     const complaint = wantsDraft ? resolved.complaint : undefined;
     if (wantsDraft && !complaint) {
       return {
@@ -112,9 +122,10 @@ export const capaAgent: AgentDefinition = {
     if (!complaint) {
       const relevant = resolved.complaint ? capa.filter((c) => c.complaintId === resolved.complaint!.id) : capa;
       const overdue = relevant.filter((c) => isOverdue(c, today));
+      const completed = relevant.filter((c) => c.status === '已完成');
       const recurrences = listEvents(deps, { domains: ['quality'], status: 'unresolved', limit: 50 }).filter((e) => e.type === 'defect_recurrence' && (!resolved.complaint || e.payload.complaintId === resolved.complaint.id));
       return {
-        headline: overdue.length ? `${overdue.length} 项整改逾期` : '没有逾期的整改项',
+        headline: resolved.complaint ? relevant.length ? `${resolved.complaint.id} 整改已完成 ${completed.length}/${relevant.length} 项，逾期 ${overdue.length} 项` : `${resolved.complaint.id} 尚未建立整改台账` : overdue.length ? `${overdue.length} 项整改逾期` : '没有逾期的整改项',
         blocks: [
           { title: '整改项', lines: relevant.map((c) => `${c.id}（${c.complaintId}）${c.title}：${c.owner}，期限 ${c.due}，${isOverdue(c, today) ? '已逾期' : c.status}`) },
           { title: '同类异常复发', lines: recurrences.length ? recurrences.map((e) => e.summary) : ['无'] },
@@ -123,7 +134,8 @@ export const capaAgent: AgentDefinition = {
             lines: ['先围堵：' + CONTAINMENT, '对复发客诉启动 8D，核查历史对策为何没有闭环（是否执行、是否被供应商遵守）', '约谈相关供应商并决定是否追溯在库与在途批次'],
           },
         ],
-        facts: [...overdue.map((c) => `${c.id} ${c.title} 已逾期（原定 ${c.due}，${c.owner}）`), ...recurrences.map((e) => e.title)],
+        facts: [...(resolved.complaint ? [`${resolved.complaint.id} 已建档整改 ${relevant.length} 项，已完成 ${completed.length} 项；建档和完成状态不等同于8D根因已验证`] : []), ...overdue.map((c) => `${c.id} ${c.title} 已逾期（原定 ${c.due}，${c.owner}）`), ...recurrences.map((e) => e.title)],
+        pending: resolved.complaint && !relevant.length ? ['本客诉尚未建立整改台账；草案或普通待办不会自动成为已建档整改项'] : [],
         actions: overdue.map((c) => ({ title: `督办 ${c.id} ${c.title}`, owner: '品质经理', due: due(1) })),
         artifacts: [
           {
@@ -150,19 +162,31 @@ export const capaAgent: AgentDefinition = {
       ['D7 预防再发', '拟更新 PFMEA 与控制计划，核实同类产品的横向展开范围'],
       ['D8 关闭', '客户确认后关闭，沉淀到品质案例库'],
     ];
+    const focus = steps.length ? rows.filter((_, i) => steps.includes(i + 1)) : rows;
+    const stepActions = [
+      { title: `${complaint.id} 确认8D小组成员与分工`, owner: '品质经理', due: due(1) },
+      { title: `${complaint.id} 核实问题描述、批次与样品信息`, owner: '品质经理', due: due(1) },
+      { title: `${complaint.id} 冻结并追溯批次 ${complaint.batch}`, owner: '品质经理', due: due(1) },
+      { title: `${complaint.id} 完成失效分析与根因确认`, owner: 'SQE', due: due(3) },
+      { title: `${complaint.id} 根因验证成立后制定永久对策`, owner: '品质经理', due: due(3) },
+      { title: `${complaint.id} 确认验证计划并收集实际结果`, owner: '品质经理', due: due(5) },
+      { title: `${complaint.id} 核实PFMEA与控制计划横向展开范围`, owner: '品质经理', due: due(7) },
+      { title: `${complaint.id} 核查整改、验证与客户确认后再申请关闭`, owner: '品质经理', due: due(7) },
+    ];
     return {
-      headline: `${complaint.id} ${isClosedComplaint(complaint) ? '已结案复盘' : '8D'}草案`,
+      headline: `${complaint.id} ${isClosedComplaint(complaint) ? '已结案复盘' : steps.length ? steps.map((s) => `D${s}`).join('/') : '8D'}草案`,
       blocks: [
-        { title: '8D 草案', lines: rows.map(([k, v]) => `${k}：${v}`) },
+        { title: '本次客诉', lines: [complaintLine(complaint)] },
+        { title: '8D 草案', lines: focus.map(([k, v]) => `${k}：${v}`) },
         { title: '本客诉的整改项', lines: own.length ? own.map((c) => `${c.id} ${c.title}（${c.owner}，${c.due}，${isOverdue(c, today) ? '已逾期' : c.status}）`) : ['尚未建立'] },
       ],
       facts: [`${complaint.id} 来自 ${complaint.customer}，批次 ${complaint.batch}`, ...(match ? [`同类历史案例 ${match.id}：${match.title}`] : [])],
-      pending: [match ? `D4 只参考 ${match.id} 的历史结论，本次根因待独立失效分析确认` : 'D4 根因待失效分析'],
-      actions: isClosedComplaint(complaint) ? [] : [
+      pending: [match ? `D4 只参考 ${match.id} 的历史结论，本次根因待独立失效分析确认` : 'D4 根因待失效分析', '草案和本轮待办不等于已建档整改项；确认事项、负责人和截止日期后建立整改台账，才会纳入持续逾期跟踪'],
+      actions: isClosedComplaint(complaint) ? [] : steps.length ? steps.map((s) => stepActions[s - 1]) : [
         { title: `${complaint.id} 冻结并追溯批次 ${complaint.batch}`, owner: '品质经理', due: due(1) },
         { title: `${complaint.id} 完成失效分析与根因确认`, owner: 'SQE', due: due(3) },
       ],
-      artifacts: [{ kind: 'table', title: `${complaint.id} 8D 报告草案`, columns: ['步骤', '内容'], rows }],
+      artifacts: [{ kind: 'table', title: `${complaint.id} ${steps.length ? steps.map((s) => `D${s}`).join('/') : '8D 报告'}草案`, columns: ['步骤', '内容'], rows: focus }],
     };
   },
 };
