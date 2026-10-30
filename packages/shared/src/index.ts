@@ -1,10 +1,10 @@
 // Types shared by the server and the web app. Keep this file free of runtime dependencies.
 
 /** Also the display order of modules in the cockpit and navigation. */
-export const DOMAINS = ['supply', 'quality', 'logistics', 'hr'] as const;
+export const DOMAINS = ['production', 'supply', 'quality', 'logistics', 'ehs', 'hr'] as const;
 export type Domain = (typeof DOMAINS)[number];
 
-export const ROLES = ['executive', 'supply_mgr', 'quality_mgr', 'hr_mgr', 'logistics_mgr'] as const;
+export const ROLES = ['executive', 'production_mgr', 'supply_mgr', 'quality_mgr', 'logistics_mgr', 'ehs_mgr', 'hr_mgr'] as const;
 export type Role = (typeof ROLES)[number];
 
 export type Severity = 'info' | 'warn' | 'critical';
@@ -242,14 +242,18 @@ export type StreamMessage =
   | { kind: 'task.created'; task: Task };
 
 export const DOMAIN_LABELS: Record<Domain, string> = {
+  production: '生产设备',
   supply: '供应链',
   quality: '品质',
   hr: 'HR',
   logistics: '智能物流',
+  ehs: '能源安全',
 };
 
 export const ROLE_LABELS: Record<Role, string> = {
   executive: '董事长',
+  production_mgr: '生产经理',
+  ehs_mgr: '安环经理',
   supply_mgr: '供应链经理',
   quality_mgr: '品质经理',
   hr_mgr: 'HR 经理',

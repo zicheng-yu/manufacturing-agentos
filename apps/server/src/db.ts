@@ -108,6 +108,14 @@ export function migrate(db: DB, moduleSchemas: string[]): void {
   for (const schema of moduleSchemas) db.exec(schema);
 }
 
+/** Add columns an existing database lacks; CREATE TABLE IF NOT EXISTS never alters a table. */
+export function ensureColumns(db: DB, table: string, columns: Record<string, string>): void {
+  const existing = new Set((db.prepare(`PRAGMA table_info(${table})`).all() as Row[]).map((c) => String(c.name)));
+  for (const [name, definition] of Object.entries(columns)) {
+    if (!existing.has(name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
+  }
+}
+
 export function transaction<T>(db: DB, fn: () => T): T {
   db.exec('BEGIN');
   try {

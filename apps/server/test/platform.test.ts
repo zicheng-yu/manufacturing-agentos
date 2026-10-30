@@ -15,7 +15,7 @@ describe('accounts and permissions', () => {
     const cookie = await env.login('chairman');
     const session = await env.get('/api/session', cookie);
     expect(session.body.account.role).toBe('executive');
-    expect(session.body.domains).toEqual(['supply', 'quality', 'logistics', 'hr']);
+    expect(session.body.domains).toEqual(['production', 'supply', 'quality', 'logistics', 'ehs', 'hr']);
   });
 
   it('requires a session', async () => {
@@ -42,8 +42,8 @@ describe('accounts and permissions', () => {
     const env = setup();
     const cookie = await env.login('chairman');
     const cockpit = await env.get<Cockpit>('/api/cockpit', cookie);
-    expect(cockpit.body.situations.map((s) => s.domain)).toEqual(['supply', 'quality', 'logistics', 'hr']);
-    for (const id of ['supply', 'quality', 'hr', 'logistics']) {
+    expect(cockpit.body.situations.map((s) => s.domain)).toEqual(['production', 'supply', 'quality', 'logistics', 'ehs', 'hr']);
+    for (const id of ['production', 'supply', 'quality', 'logistics', 'ehs', 'hr']) {
       const overview = await env.get(`/api/modules/${id}/overview`, cookie);
       expect(overview.status).toBe(200);
       expect(overview.body.tables.length).toBeGreaterThan(0);
@@ -284,7 +284,8 @@ describe('demo storyline', () => {
     const cookie = await env.login('chairman');
     const cockpit = await env.get<Cockpit>('/api/cockpit', cookie);
     const levels = Object.fromEntries(cockpit.body.situations.map((s) => [s.domain, s.level]));
-    expect(levels).toEqual({ supply: 'alert', quality: 'alert', logistics: 'alert', hr: 'alert' });
+    // The fictional fixtures have no production or EHS data, so those cards stay normal.
+    expect(levels).toEqual({ production: 'normal', supply: 'alert', quality: 'alert', logistics: 'alert', ehs: 'normal', hr: 'alert' });
 
     const briefing = await env.send('POST', '/api/cockpit/briefing', {}, { Cookie: cookie });
     expect(briefing.status).toBe(200);

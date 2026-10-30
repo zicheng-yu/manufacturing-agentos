@@ -9,7 +9,11 @@ export interface LlmConfig {
   reasoningEffort: string | null;
 }
 
+/** 'official': the track's material pack (default). 'demo': the original fictional data, kept as test fixtures. */
+export type Dataset = 'official' | 'demo';
+
 export interface Config {
+  dataset: Dataset;
   port: number;
   dbPath: string;
   llm: LlmConfig | null;
@@ -24,6 +28,7 @@ const DEFAULT_WEB_DIST = fileURLToPath(new URL('../../web/dist', import.meta.url
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const apiKey = env.LLM_API_KEY?.trim();
   return {
+    dataset: env.DATASET === 'demo' ? 'demo' : 'official',
     port: Number(env.API_PORT ?? 8787),
     dbPath: env.DB_PATH ?? fileURLToPath(new URL('../data/agentos.db', import.meta.url)),
     llm: apiKey

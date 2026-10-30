@@ -1,7 +1,6 @@
 import type { Account, AgentResult, Conversation, Domain, Turn } from '@agentos/shared';
 import { HTTPException } from 'hono/http-exception';
 import { parseJson, transaction, type Row } from '../../db.ts';
-import { COMPANY } from '../../seed/company.ts';
 import type { Deps } from '../deps.ts';
 import { ingestEvent } from '../events.ts';
 import { addTask, listMemoryForTurns, remember } from '../memory.ts';
@@ -106,7 +105,7 @@ export async function runTurn(
     try {
       const raw = await deps.provider.complete(
         buildMessages({
-          company: COMPANY,
+          company: deps.company,
           agent,
           context,
           memory,

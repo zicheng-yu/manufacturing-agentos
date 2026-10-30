@@ -23,6 +23,7 @@ export interface TestEnv {
 export function setup(start = new Date('2026-10-30T09:00:00+08:00')): TestEnv {
   let now = start;
   const config: Config = {
+    dataset: 'demo',
     port: 0,
     dbPath: ':memory:',
     llm: null,

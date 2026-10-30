@@ -2,6 +2,8 @@ import { DOMAINS, type Domain, type Role } from '@agentos/shared';
 
 const ROLE_DOMAINS: Record<Role, readonly Domain[]> = {
   executive: DOMAINS,
+  production_mgr: ['production'],
+  ehs_mgr: ['ehs'],
   supply_mgr: ['supply'],
   quality_mgr: ['quality'],
   hr_mgr: ['hr'],
