@@ -1,10 +1,10 @@
 import { listEvents } from '../../core/events.ts';
+import { evaluateDomain } from '../../core/signals.ts';
 import type { AgentContext, AgentDefinition } from '../../core/module.ts';
 import { qualityDate, shiftDate } from './calendar.ts';
 import { complaintTrend, isClosedComplaint, isOverdue, listCapa, listComplaints, similarCases, type Complaint } from './data.ts';
 
 import { qualityQuery } from './query.ts';
-import { syncOverdueEvents } from './tracking.ts';
 
 const CONTAINMENT = '冻结同批次在库与在途品，筛查客户端库存，必要时临时加严出货检验';
 
@@ -29,7 +29,7 @@ export const complaintAgent: AgentDefinition = {
     '你负责客诉受理。只引用当前问题对应的历史案例；相似症状不代表同一客诉或同一根因，无匹配应直接说明。围堵措施与历史永久对策分开写，永久对策在本次根因核实后再考虑采用。根因与供应商责任在现场确认前一律标为待核。需要8D时建议使用8D改善助手。',
   starters: ['客户反馈中控屏间歇黑屏，FPC 金手指发黑', '偏光片起泡以前怎么解决的', '最近有哪些未结客诉？'],
   context({ db, now, input, history, deps }) {
-    syncOverdueEvents(deps);
+    evaluateDomain(deps, 'quality');
     const resolved = qualityQuery(db, input, history);
     if (resolved.missing.length || resolved.complaintIds.length > 1) return clarification(resolved.missing.length ? resolved.missing : resolved.complaintIds, now);
     const complaints = listComplaints(db);
@@ -101,7 +101,7 @@ export const capaAgent: AgentDefinition = {
     '你负责8D改善。起草必须唯一确定本次客诉，编号未收录或不明确时要求核实，不得选择其他客诉代写。按D1–D8输出，以「8D草案」为准；写着「待失效分析」的步骤照写，不得用其他案例补全。本次根因与责任需独立核实，D6是拟定验证计划，不是验证已通过。仅查询整改项时不代写报告。',
   starters: ['为 CC-2610-12 起草 8D', '哪些整改项逾期了？', '同类异常复发应该怎么处理'],
   context({ db, now, input, history, deps }) {
-    syncOverdueEvents(deps);
+    evaluateDomain(deps, 'quality');
     const today = qualityDate(now);
     const due = (n: number) => shiftDate(today, n);
     const complaints = listComplaints(db);

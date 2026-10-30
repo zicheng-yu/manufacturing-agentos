@@ -6,6 +6,8 @@ import { qualitySeedEvents, seedQuality } from './seed.ts';
 import { qualityDate } from './calendar.ts';
 import { qualityRoutes } from './routes.ts';
 import { normalizeSymptom } from './symptoms.ts';
+import { syncOverdueEvents } from './tracking.ts';
+import { parseJson, type Row } from '../../db.ts';
 
 export const qualityModule: DomainModule = {
   id: 'quality',
@@ -29,6 +31,7 @@ export const qualityModule: DomainModule = {
   seedEvents: qualitySeedEvents,
   agents: [complaintAgent, capaAgent],
   routes: qualityRoutes,
+  beforeEvaluate: syncOverdueEvents,
 
   eventTypes: [
     { type: 'customer_complaint', label: '客户投诉', severity: 'warn', kind: 'state', dedupeFields: ['complaintId'] },
@@ -156,33 +159,48 @@ export const qualityModule: DomainModule = {
     };
   },
 
-  onEvent({ db, now, emit }, event, { created }) {
-    if (event.type !== 'customer_complaint' || !created) return;
+  onEvent({ db, now, emit, resolve }, event) {
+    if (event.type !== 'customer_complaint') return;
     const p = event.payload as Record<string, string | undefined>;
     const complaintId = p.complaintId ?? event.id;
-    const query = (p.symptom ?? event.summary).replace(/\bQC-[A-Z0-9-]+\b/gi, '');
-    const match = similarCases(db, query, p.category).find((m) => m.specific &&
-      (!p.category || p.category === '未分类' || normalizeSymptom(p.category) === normalizeSymptom(m.case.category)))?.case ?? null;
+    const existing = listComplaints(db).find((c) => c.id === complaintId);
+    // A repeated report must not reopen or rewrite a complaint already closed by the business.
+    if (existing && isClosedComplaint(existing)) return;
+    const symptom = p.symptom ?? (event.summary || existing?.symptom || '');
+    const category = p.category ?? existing?.category ?? '未分类';
+    const query = symptom.replace(/\bQC-[A-Z0-9-]+\b/gi, '');
+    const match = similarCases(db, query, category).find((m) => m.specific &&
+      (category === '未分类' || normalizeSymptom(category) === normalizeSymptom(m.case.category)))?.case ?? null;
     db.prepare(
-      `INSERT OR IGNORE INTO quality_complaints (id, customer, product, batch, symptom, category, severity, status, received_at, owner, case_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, '处理中', ?, '品质经理', ?)`,
+      `INSERT INTO quality_complaints (id, customer, product, batch, symptom, category, severity, status, received_at, owner, case_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, '处理中', ?, '品质经理', ?)
+       ON CONFLICT(id) DO UPDATE SET customer = excluded.customer, product = excluded.product,
+         batch = excluded.batch, symptom = excluded.symptom, category = excluded.category,
+         severity = excluded.severity, case_id = excluded.case_id`,
     ).run(
       complaintId,
-      p.customer ?? '未知客户',
-      p.product ?? '',
-      p.batch ?? '',
-      p.symptom ?? event.summary,
-      p.category ?? '未分类',
-      event.severity === 'critical' ? '严重' : '一般',
+      p.customer ?? existing?.customer ?? '未知客户',
+      p.product ?? existing?.product ?? '',
+      p.batch ?? existing?.batch ?? '',
+      symptom,
+      category,
+      event.severity === 'critical' ? '严重' : existing?.severity ?? '一般',
       qualityDate(now),
       match?.id ?? null,
     );
+    // Corrected evidence can invalidate a previous automatic match; keep manual reports intact.
+    const recurrences = db.prepare("SELECT id, payload_json, source_json FROM events WHERE domain = 'quality' AND type = 'defect_recurrence' AND status != 'resolved'").all() as Row[];
+    for (const row of recurrences) {
+      const payload = parseJson<Record<string, unknown>>(row.payload_json, {});
+      const source = parseJson<Record<string, unknown>>(row.source_json, {});
+      if (payload.complaintId === complaintId && source.actor === '案例比对规则' && payload.caseId !== match?.id) resolve(String(row.id));
+    }
     if (!match) return;
     emit({
       domain: 'quality',
       type: 'defect_recurrence',
       title: `${complaintId} 与 ${match.id} 疑似同类复发`,
-      summary: `${p.customer ?? ''}「${p.symptom ?? ''}」与历史案例 ${match.id}「${match.title}」症状相似；历史根因：${match.rootCause}；历史案例涉及供应商：${match.supplier}；本次根因与责任归属待失效分析确认`,
+      summary: `${p.customer ?? existing?.customer ?? ''}「${symptom}」与历史案例 ${match.id}「${match.title}」症状相似；历史根因：${match.rootCause}；历史案例涉及供应商：${match.supplier}；本次根因与责任归属待失效分析确认`,
       payload: {
         complaintId,
         category: match.category,

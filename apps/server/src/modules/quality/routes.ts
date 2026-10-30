@@ -3,11 +3,11 @@ import { z } from 'zod';
 import { HTTPException } from 'hono/http-exception';
 import { requireScope } from '../../core/auth.ts';
 import type { AppEnv, Deps } from '../../core/deps.ts';
+import { evaluateDomain } from '../../core/signals.ts';
 import { newId } from '../../core/util.ts';
 import { transaction } from '../../db.ts';
 import { qualityDate, validDate } from './calendar.ts';
 import { isClosedComplaint, isOverdue, listCapa, listComplaints } from './data.ts';
-import { installQualityTracking, syncOverdueEvents } from './tracking.ts';
 
 const CapaPatch = z.object({
   status: z.enum(['进行中', '已完成', '已取消']).optional(),
@@ -23,7 +23,7 @@ const CapaCreate = z.object({
 }).strict();
 
 export function qualityRoutes(app: Hono<AppEnv>, deps: Deps): void {
-  installQualityTracking(deps);
+  evaluateDomain(deps, 'quality');
   app.post('/complaints/:id/capa', async (c) => {
     requireScope(c, 'quality');
     const input = CapaCreate.safeParse(await c.req.json().catch(() => null));
@@ -38,7 +38,7 @@ export function qualityRoutes(app: Hono<AppEnv>, deps: Deps): void {
       deps.db.prepare('INSERT INTO quality_capa (id, complaint_id, title, owner, due, status) VALUES (?, ?, ?, ?, ?, ?)').run(id, complaint.id, input.data.title, input.data.owner, input.data.due, '进行中');
       return { capa: listCapa(deps.db).find((item) => item.id === id)!, created: true };
     });
-    syncOverdueEvents(deps);
+    evaluateDomain(deps, 'quality');
     return c.json({ ...saved, overdue: isOverdue(saved.capa, qualityDate(deps.clock())) }, saved.created ? 201 : 200);
   });
   app.patch('/capa/:id', async (c) => {
@@ -50,7 +50,7 @@ export function qualityRoutes(app: Hono<AppEnv>, deps: Deps): void {
     deps.db.prepare('UPDATE quality_capa SET status = ?, due = ?, owner = ? WHERE id = ?').run(
       patch.data.status ?? item.status, patch.data.due ?? item.due, patch.data.owner ?? item.owner, item.id,
     );
-    syncOverdueEvents(deps);
+    evaluateDomain(deps, 'quality');
     const updated = listCapa(deps.db).find((r) => r.id === item.id)!;
     return c.json({ capa: updated, overdue: isOverdue(updated, qualityDate(deps.clock())) });
   });

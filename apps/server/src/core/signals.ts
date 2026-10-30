@@ -6,6 +6,7 @@ import type { SignalRule } from './module.ts';
 import { addMinutes, shortHash } from './util.ts';
 
 const ALL = '__all__';
+const evaluating = new WeakMap<Deps, Set<Domain>>();
 
 export function rowToSignal(row: Row): Signal {
   return {
@@ -53,6 +54,20 @@ function matchingEvents(deps: Deps, domain: Domain, rule: SignalRule, now: Date)
 
 /** Recompute the domain's signals from its recent events, then its situation card. Publishes only changes. */
 export function evaluateDomain(deps: Deps, domain: Domain): void {
+  const active = evaluating.get(deps) ?? new Set<Domain>();
+  if (active.has(domain)) return;
+  evaluating.set(deps, active);
+  active.add(domain);
+  try {
+    // Reconciliation may ingest/resolve events. Defer their nested evaluations until it finishes.
+    deps.registry.module(domain).beforeEvaluate?.(deps);
+    evaluateDomainState(deps, domain);
+  } finally {
+    active.delete(domain);
+  }
+}
+
+function evaluateDomainState(deps: Deps, domain: Domain): void {
   const module = deps.registry.module(domain);
   const now = deps.clock();
   const nowIso = now.toISOString();

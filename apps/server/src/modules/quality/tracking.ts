@@ -4,7 +4,6 @@ import type { Row } from '../../db.ts';
 import { qualityDate } from './calendar.ts';
 import { isOverdue, listCapa } from './data.ts';
 
-const registered = new WeakSet<Deps>();
 const reconciling = new WeakSet<Deps>();
 
 /** Business-state alerts are independent of an individual chat turn. */
@@ -38,14 +37,4 @@ export function syncOverdueEvents(deps: Deps): void {
   } finally {
     reconciling.delete(deps);
   }
-}
-
-/** Reuse the service's existing minute-by-minute situation evaluation; no extra timers or core hooks. */
-export function installQualityTracking(deps: Deps): void {
-  if (registered.has(deps)) return;
-  registered.add(deps);
-  deps.bus.subscribe((message) => {
-    if (message.kind === 'situation.updated' && message.situation.domain === 'quality') syncOverdueEvents(deps);
-  });
-  syncOverdueEvents(deps);
 }
