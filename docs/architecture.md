@@ -52,13 +52,15 @@ Event（一线）──规则──▶ Signal（经理）──汇总──▶ S
 
 一次问答 = 确定性分析 + 模型撰写：
 
-1. `agent.context()` 读取模块数据，算出结论所需的事实、表格、行动项，必要时产生事件（例如缺料风险）。这一步不调用模型，结果可测试。
+1. `agent.context()` 读取模块数据，算出结论所需的事实、表格、行动项，必要时产生事件（例如缺料风险）。默认使用确定性规则；公司制度助手可在此调用模型选择原文条款，核验引用后返回 `preparedResponse`。
 2. 配置了模型时，`core/agents/prompt.ts` 把分析结果、共享记忆和对话历史交给模型撰写正文；模型只补充新内容，不改写已算出的事实和行动项。没配置模型或模型失败时，直接用分析结果作答（离线规则模式）。
 3. `core/agents/runtime.ts` 把事实 / 待核 / 建议写入共享记忆，行动项写入待办；删除一轮问答会连带删除它写入的记忆、待办和事件。
 
 ### 权限
 
-`core/roles.ts`：角色 → 可见模块。智能体、事件、信号、记忆、待办、模块页都按模块判断可见性；董事长可见全部。
+`core/roles.ts`：角色 → 可见模块。事件、信号、记忆、待办、模块页按模块判断可见性；董事长可见全部。智能体默认沿用模块权限；显式声明 `companyService` 的员工自助助手可由所有已登录账号调用，不开放所属模块的管理数据。当前只有 `hr.service` 使用此标记，员工自助请求仍按账号隔离。
+
+领域助手可使用异步 `context()` 完成检索与验证，并返回 `preparedResponse` 跳过通用模型撰写。公司制度助手借此核对引用的有效版本和原文后保存回答，其余助手沿用原流程。
 
 ## 本地运行
 
@@ -82,7 +84,7 @@ npm run typecheck
 
 ## PR 约定
 
-1. 一个 Linear issue 一个分支，分支名用 Linear 生成的 `zicheng/you-xxx-...`，PR 标题带 issue 编号。
+1. **先认领，再开发**：在 Linear 把对应 issue Assign 给自己、状态改为 In Progress，确认保存成功后再开分支写代码；已有负责人时先协调。一个 issue 一个分支，分支名带 issue 编号（如 `codex/you-124-hr-workflows` 或 Linear 生成的分支名），PR 标题带 issue 编号。完整流程见 [贡献指南](../CONTRIBUTING.md)。
 2. 只改自己负责的目录：模块负责人改 `modules/<id>/`，物流仿真改 `modules/logistics/` 与仿真侧代码。需要动 `core/`、`packages/shared/` 或其他模块的，在 PR 里说明原因。
 3. 合并前 `npm test` 与 `npm run typecheck` 必须通过；演示主线测试（`test/platform.test.ts` 的 demo storyline）不能被改坏。
 4. 演示数据一律是虚构的；不要提交真实客户、员工信息，不要提交 `.env`。

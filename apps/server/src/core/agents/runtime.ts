@@ -5,7 +5,7 @@ import { COMPANY } from '../../seed/company.ts';
 import type { Deps } from '../deps.ts';
 import { ingestEvent } from '../events.ts';
 import { addTask, listMemoryForTurns, remember } from '../memory.ts';
-import { canSee } from '../roles.ts';
+import { canUseAgent } from '../roles.ts';
 import { evaluateDomain } from '../signals.ts';
 import { isoDate, newId, normalizeText, unique } from '../util.ts';
 import { buildMessages, offlineDraft, parseModelOutput, type DraftResult } from './prompt.ts';
@@ -73,7 +73,7 @@ export async function runTurn(
 ): Promise<{ conversation: Conversation; turn: Turn }> {
   const { account } = input;
   const agent = deps.registry.agent(input.agentId);
-  if (!canSee(account.role, agent.module)) throw new HTTPException(403, { message: '当前账号无权使用该智能体' });
+  if (!canUseAgent(account.role, agent)) throw new HTTPException(403, { message: '当前账号无权使用该智能体' });
   const question = input.question.trim();
   if (!question) throw new HTTPException(400, { message: '问题不能为空' });
 
@@ -92,14 +92,17 @@ export async function runTurn(
 
   const started = Date.now();
   const earlier = listTurns(deps, conversation.id).slice(-HISTORY_TURNS);
-  const context = agent.context({ db: deps.db, now, input: question, history: earlier.map((t) => t.input), account, deps });
+  const context = await agent.context({ db: deps.db, now, input: question, history: earlier.map((t) => t.input), account, deps });
   const history = earlier.map((t) => ({ input: t.input, answer: t.result.answer }));
   // Only this conversation's working memory: other conversations' figures go stale and leak into answers.
   const memory = listMemoryForTurns(deps.db, earlier.map((t) => t.id)).slice(-MEMORY_RECORDS);
 
   let mode: Turn['mode'] = deps.provider.mode;
   let draft: DraftResult;
-  if (deps.provider.mode === 'llm') {
+  if (context.preparedResponse) {
+    mode = context.preparedResponse.mode;
+    draft = { ...offlineDraft(agent, context), answer: context.preparedResponse.answer };
+  } else if (deps.provider.mode === 'llm') {
     try {
       const raw = await deps.provider.complete(
         buildMessages({
@@ -133,6 +136,7 @@ export async function runTurn(
     actions: context.actions?.length ? context.actions : unique(draft.actions, (a) => normalize(a.title)).slice(0, MODEL_ACTIONS),
     artifacts: context.artifacts ?? [],
     eventIds: [],
+    ...(context.policy ? { policy: context.policy } : {}),
   };
 
   for (const event of context.events ?? []) {

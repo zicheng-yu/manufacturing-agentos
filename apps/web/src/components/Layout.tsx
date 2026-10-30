@@ -19,6 +19,7 @@ export function Layout() {
   const main: NavItem[] = [
     { to: '/', label: '经营驾驶舱', icon: LayoutDashboard },
     { to: '/agents', label: '智能体工作台', icon: Bot },
+    { to: '/employee-service', label: '公司制度助手', icon: Bot },
   ];
   const modules: NavItem[] = DOMAINS.filter((d) => session.domains.includes(d)).map((d) => ({
     to: `/m/${d}`,

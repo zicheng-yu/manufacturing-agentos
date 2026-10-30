@@ -31,6 +31,17 @@ export function Answer({ markdown }: { markdown: string }) {
   );
 }
 
+export function PolicySources({ result }: { result: AgentResult }) {
+  if (!result.policy?.citations.length) return null;
+  return <div className="space-y-2" aria-label="引用的公司制度">
+    {result.policy.citations.map((source) => <details key={source.sourceId + source.quote} className="rounded-lg border border-brand-100 bg-brand-50/40 px-3 py-2">
+      <summary className="cursor-pointer text-sm font-medium text-brand-800">{source.title} · v{source.version} · 条款 {source.section}</summary>
+      <p className="mt-2 text-xs text-slate-500">{source.documentId} · {source.kind === 'faq' ? 'HR 已审核 FAQ' : '公司制度'} · {source.scope} · 生效：{source.effectiveFrom ?? '历史演示制度未标注'}</p>
+      <blockquote className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-700">{source.quote}</blockquote>
+    </details>)}
+  </div>;
+}
+
 /** Facts, pending checks and suggestions kept apart, so nobody mistakes a suggestion for a fact. */
 export function Evidence({ result }: { result: AgentResult }) {
   if (!result.facts.length && !result.pending.length && !result.suggestions.length) return null;

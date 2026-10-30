@@ -1,4 +1,4 @@
-import { StrictMode } from 'react';
+import { lazy, StrictMode, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router';
 import { Layout } from './components/Layout.tsx';
@@ -11,6 +11,8 @@ import { Login } from './pages/Login.tsx';
 import { ModulePage } from './pages/ModulePage.tsx';
 import { SessionProvider, useSession } from './session.tsx';
 import { Spinner } from './ui.tsx';
+
+const EmployeeService = lazy(() => import('./pages/hr/EmployeeService.tsx').then((m) => ({ default: m.EmployeeService })));
 
 function App() {
   const { session, ready } = useSession();
@@ -30,6 +32,7 @@ function App() {
         <Route path="agents/:agentId" element={<Agents />} />
         <Route path="agents/:agentId/:conversationId" element={<Agents />} />
         <Route path="m/:domain" element={<ModulePage />} />
+        <Route path="employee-service" element={<Suspense fallback={<div className="p-6"><Spinner /></div>}><EmployeeService /></Suspense>} />
         <Route path="events" element={<Events />} />
         {session.account.role === 'executive' && <Route path="accounts" element={<Accounts />} />}
         <Route path="*" element={<Navigate to="/" replace />} />

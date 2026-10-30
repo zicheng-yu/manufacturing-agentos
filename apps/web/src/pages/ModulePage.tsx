@@ -1,12 +1,13 @@
 import type { AgentOSEvent, Domain, ModuleOverview, Signal } from '@agentos/shared';
 import { Bot } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { useApi } from '../api.ts';
 import { DataTable } from '../components/DataTable.tsx';
 import { EventRow, SignalDrawer, SignalList, SituationCard, useFlash } from '../components/Live.tsx';
 import { useLive, useSession } from '../session.tsx';
 import { Card, DOMAIN_ICONS, Empty, Spinner } from '../ui.tsx';
+const HrWorkbench = lazy(() => import('./hr/HrWorkbench.tsx').then((m) => ({ default: m.HrWorkbench })));
 
 export function ModulePage() {
   const domain = useParams().domain as Domain;
@@ -53,7 +54,7 @@ export function ModulePage() {
         </div>
         <div className="flex flex-wrap gap-2">
           {agents.map((a) => (
-            <Link key={a.id} to={`/agents/${a.id}`} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 hover:border-brand-300 hover:text-brand-700">
+            <Link key={a.id} to={a.companyService ? '/employee-service' : '/agents/' + a.id} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 hover:border-brand-300 hover:text-brand-700">
               <Bot className="size-4" />
               {a.name}
             </Link>
@@ -76,9 +77,11 @@ export function ModulePage() {
         </div>
       </div>
 
+      {domain === 'hr' ? <Suspense fallback={<Spinner />}><HrWorkbench onChanged={() => { void overview.reload(); void events.reload(); void signals.reload(); }} /></Suspense> : null}
+
       <div className="grid gap-5 xl:grid-cols-3">
         <div className="space-y-5 xl:col-span-2">
-          {tables.map((t) => (
+          {tables.filter((t) => domain !== 'hr' || t.title !== '员工服务请求').map((t) => (
             <Card key={t.title} title={t.title}>
               <DataTable table={t} />
             </Card>

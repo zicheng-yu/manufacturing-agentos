@@ -39,4 +39,4 @@ npm run dev             # 打开 http://localhost:5173
 
 ## 协作
 
-任务在 Linear 项目 [2026.10-11 达智汇 Manufacturing AgentOS](https://linear.app/youonlyattendonce/project/202610-11-达智汇-manufacturing-agentos-bcd830d231e4) 跟踪。新功能按 issue 开分支、提 PR，合并前 `npm test` 与 `npm run typecheck` 必须通过。
+任务在 Linear 项目 [2026.10-11 达智汇 Manufacturing AgentOS](https://linear.app/youonlyattendonce/project/202610-11-达智汇-manufacturing-agentos-bcd830d231e4) 跟踪。**认领任务时，先在 Linear 将对应 issue Assign 给自己并设为 In Progress，确认负责人更新成功后再开始开发。** 已有负责人时先协调分工，避免重复开发。新功能按 issue 开分支、提 PR，合并前 `npm test` 与 `npm run typecheck` 必须通过。完整流程见 [贡献指南](CONTRIBUTING.md)。

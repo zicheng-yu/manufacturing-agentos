@@ -17,3 +17,8 @@ export function canSee(role: Role, scope: Domain | 'executive'): boolean {
   if (scope === 'executive') return role === 'executive';
   return ROLE_DOMAINS[role].includes(scope);
 }
+
+/** Service access grants no access to the owning module's other data or agents. */
+export function canUseAgent(role: Role, agent: { module: Domain | 'executive'; companyService?: boolean }): boolean {
+  return agent.companyService === true || canSee(role, agent.module);
+}

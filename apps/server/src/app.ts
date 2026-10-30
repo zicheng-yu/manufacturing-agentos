@@ -15,7 +15,7 @@ import { Bus, type AppEnv, type Deps } from './core/deps.ts';
 import { getEvent, listEvents, redactEvent, setEventStatus } from './core/events.ts';
 import { getTask, listMemory, listTasks, setTaskStatus } from './core/memory.ts';
 import { Registry } from './core/registry.ts';
-import { canSee, domainsFor } from './core/roles.ts';
+import { canSee, canUseAgent, domainsFor } from './core/roles.ts';
 import { computeSituation, listSignals, rowToSignal, signalEvents } from './core/signals.ts';
 import { openDb, migrate, type DB, type Row } from './db.ts';
 import { rankSignals } from './executive/briefing.ts';
@@ -123,8 +123,8 @@ export function createApp(deps: Deps): Hono<AppEnv> {
         .map((m) => ({ id: m.id, name: m.name, description: m.description })),
       agents: deps.registry
         .agents()
-        .filter((a) => canSee(account.role, a.module))
-        .map((a) => ({ id: a.id, module: a.module, name: a.name, description: a.description, starters: a.starters })),
+        .filter((a) => canUseAgent(account.role, a))
+        .map((a) => ({ id: a.id, module: a.module, name: a.name, description: a.description, starters: a.starters, ...(a.companyService ? { companyService: true } : {}) })),
       llm: { mode: deps.provider.mode, model: deps.provider.model },
     };
     return c.json(catalog);
