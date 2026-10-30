@@ -11,6 +11,8 @@ import {
   normalizeQuotes,
   supplierName,
   type Material,
+  coverText,
+  stockRatio,
 } from './data.ts';
 import { isInventoryOverview, isSupplierInventoryQuestion, isSupplierQuestion, matchSuppliers, materialCodes, resolveMaterial, unknownSuppliers } from './lookup.ts';
 import { riskBlocks, riskEvents, riskTable, supplierRisks } from './risk.ts';
@@ -19,6 +21,8 @@ import { purchaseContext } from './purchase.ts';
 
 /** Quantity to bring cover back to safety stock plus one week, counting everything already on order. */
 export function replenishQty(m: Material): number {
+  // Without a usage rate the only defensible target is the safety stock itself.
+  if (m.dailyUsage <= 0) return Math.max(0, Math.ceil((m.safetyStock - m.onHand - m.inTransit) / 100) * 100);
   const target = m.dailyUsage * (m.safetyDays + 7);
   return Math.max(0, Math.ceil((target - m.onHand - m.inTransit) / 100) * 100);
 }
@@ -28,7 +32,7 @@ function orderLines(m: Material): string[] {
 }
 
 function stockLine(m: Material): string {
-  return `库存 ${m.onHand} ${m.unit}，在途 ${m.inTransit}，日耗 ${m.dailyUsage}，可用 ${round(m.cover, 1)} 天（安全 ${m.safetyDays} 天）${m.stockoutDate && materialStatus(m) !== '正常' ? `，预计 ${m.stockoutDate} 断料` : ''}，状态：${materialStatus(m)}`;
+  return `库存 ${m.onHand} ${m.unit}，在途 ${m.inTransit}，${m.dailyUsage > 0 ? `日耗 ${m.dailyUsage}，` : ''}${coverText(m)}，状态：${materialStatus(m)}`;
 }
 
 /** Supply events about this material, and quality events naming its suppliers. */
@@ -247,7 +251,7 @@ export const inventoryAgent: AgentDefinition = {
     const supplierStock = requested.length && isSupplierInventoryQuestion(suppliers, input);
     if (!selected && !overview && !supplierStock) return supplierOverview(ctx);
     const materials = (selected ?? (requested.length ? all.filter((m) => requested.some((s) => s.id === m.supplierId)) : all))
-      .sort((a, b) => a.cover - b.cover);
+      .sort((a, b) => stockRatio(a) - stockRatio(b));
     if (!materials.length) {
       return {
         headline: `${requested.map((s) => s.name).join('、')}已收录，但没有关联的现供物料库存`,
@@ -260,7 +264,7 @@ export const inventoryAgent: AgentDefinition = {
     return {
       headline: risky.length ? `本次查询 ${risky.length} 项物料低于安全库存，需补货或加急` : `本次查询 ${materials.length} 项物料均高于安全库存`,
       blocks: [
-        { title: '库存可用天数（由低到高）', lines: materials.map((m) => `${m.code} ${m.name}：${stockLine(m)}`) },
+        { title: '库存（按距安全库存由近到远）', lines: materials.map((m) => `${m.code} ${m.name}：${stockLine(m)}`) },
         {
           title: '延迟在途订单',
           lines: delayed.length
@@ -274,7 +278,7 @@ export const inventoryAgent: AgentDefinition = {
             : `${m.code} 库存与在途总量已覆盖目标需求，但到货前仍存在缺口；优先加急现有订单并核实排产，无需重复追加采购`) : ['暂无'],
         },
       ],
-      facts: risky.map((m) => `${m.code} ${m.name} 可用 ${round(m.cover, 1)} 天，低于安全天数 ${m.safetyDays} 天${m.stockoutDate ? `，预计 ${m.stockoutDate} 断料` : ''}`),
+      facts: risky.map((m) => `${m.code} ${m.name} 库存 ${m.onHand} ${m.unit}，${coverText(m)}`),
       actions: risky.map((m) => ({
         title: replenishQty(m) > 0 ? `${m.code} 补货 ${replenishQty(m)} ${m.unit}，确认交期覆盖缺口` : `${m.code} 加急现有在途订单并核实排产，避免重复采购`,
         owner: '供应链经理',
@@ -289,8 +293,8 @@ export const inventoryAgent: AgentDefinition = {
             m.code,
             m.name,
             m.line,
-            round(m.cover, 1),
-            m.safetyDays,
+            m.dailyUsage > 0 ? round(m.cover, 1) : '—',
+            m.dailyUsage > 0 ? m.safetyDays : `${m.safetyStock} ${m.unit}（数量）`,
             materialStatus(m) === '正常' ? '—' : (m.stockoutDate ?? '—'),
             materialStatus(m),
             materialStatus(m) === '正常' ? 0 : replenishQty(m),

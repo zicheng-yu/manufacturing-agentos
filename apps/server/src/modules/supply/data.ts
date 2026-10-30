@@ -25,6 +25,8 @@ export interface Material {
   orders: Order[];
   dailyUsage: number;
   safetyDays: number;
+  /** Safety stock as a quantity; the official pack gives this instead of days. 0 when unknown. */
+  safetyStock: number;
   supplierId: string;
   unitPrice: number;
   /** Days until stock runs out, counting each open order on its (possibly delayed) arrival date. */
@@ -101,6 +103,7 @@ export function listMaterials(db: DB, now: Date): Material[] {
       orders: mine,
       dailyUsage,
       safetyDays: Number(r.safety_days),
+      safetyStock: Number(r.safety_stock ?? 0),
       supplierId: String(r.supplier_id),
       unitPrice: Number(r.unit_price),
       cover,
@@ -114,9 +117,30 @@ export function coverDays(m: Material): number {
 }
 
 export function materialStatus(m: Material): '正常' | '低于安全库存' | '缺料风险' {
+  // Without a usage rate (most of the official pack), judge stock against the safety quantity instead.
+  if (m.dailyUsage <= 0) {
+    if (m.safetyStock <= 0) return '正常';
+    if (m.onHand < m.safetyStock * 0.6) return '缺料风险';
+    return m.onHand < m.safetyStock ? '低于安全库存' : '正常';
+  }
   if (m.cover < m.safetyDays * 0.6) return '缺料风险';
   if (m.cover < m.safetyDays) return '低于安全库存';
   return '正常';
+}
+
+/** How full stock is relative to its safety level: cover ÷ safety days, or quantity ÷ safety stock without a usage rate. */
+export function stockRatio(m: Material): number {
+  if (m.dailyUsage > 0) return m.safetyDays > 0 ? m.cover / m.safetyDays : Infinity;
+  return m.safetyStock > 0 ? m.onHand / m.safetyStock : Infinity;
+}
+
+/** "可用 3 天，安全 11 天" when usage is known, otherwise the quantity against safety stock. */
+export function coverText(m: Material): string {
+  if (m.dailyUsage > 0) {
+    return `可用 ${Math.round(m.cover * 10) / 10} 天（安全 ${m.safetyDays} 天）${m.stockoutDate && materialStatus(m) !== '正常' ? `，预计 ${m.stockoutDate} 断料` : ''}`;
+  }
+  if (m.safetyStock > 0) return `为安全库存 ${m.safetyStock} ${m.unit}的 ${Math.round((m.onHand / m.safetyStock) * 100)}%（未提供日耗，按数量判断）`;
+  return '未设定安全库存';
 }
 
 export function matchesDimensions(material: Material, text: string): boolean {
@@ -145,6 +169,7 @@ export function matchMaterial(materials: Material[], text: string, preferCodes: 
 }
 
 export function supplierName(db: DB, id: string): string {
+  if (!id) return '未登记';
   const row = db.prepare('SELECT name FROM supply_suppliers WHERE id = ?').get(id) as Row | undefined;
   return row ? String(row.name) : id;
 }

@@ -1,13 +1,16 @@
 import type { AgentDefinition } from '../../core/module.ts';
 import { addDays, isoDate, round } from '../../core/util.ts';
 import {
+  compareStrategies,
   equipmentHealth,
   lineOee,
   listRepairs,
   OEE_TARGET,
   plantLosses,
+  PRECURSOR_HOURS,
+  PRECURSOR_READINGS,
   readings,
-  schedule,
+  STRATEGY_LABEL,
   VIBRATION_ALARM,
   VIBRATION_WARN,
 } from './data.ts';
@@ -32,8 +35,9 @@ export const equipmentAgent: AgentDefinition = {
   context({ db, input }) {
     const health = equipmentHealth(db);
     const focus = health.find((h) => input.toUpperCase().includes(h.equipment.id)) ?? null;
-    const leads = health.flatMap((h) => h.leadDays);
-    const avgLead = leads.length ? round(leads.reduce((s, l) => s + l.days, 0) / leads.length, 1) : null;
+    const repairs = listRepairs(db);
+    const leads = health.flatMap((h) => h.precursors);
+    const avgLead = leads.length ? Math.round(leads.reduce((s, l) => s + l.hoursAhead, 0) / leads.length) : null;
     const flagged = health.filter((h) => h.status !== '正常' || h.alarms.length);
     const blocks = [
       {
@@ -44,10 +48,10 @@ export const equipmentAgent: AgentDefinition = {
         ),
       },
       {
-        title: '振动超限与随后的故障',
+        title: `故障前 ${PRECURSOR_HOURS} 小时的振动前兆`,
         lines: leads.length
-          ? leads.map((l) => `${l.repair.equipmentId}：超限后 ${l.days} 天发生「${l.repair.symptom}」（${l.repair.occurredAt}，原因 ${l.repair.cause}，停机 ${l.repair.downtimeMin} 分钟）`)
-          : ['维修记录前 14 天内没有振动超限'],
+          ? leads.map((l) => `${l.repair.equipmentId}：${l.firstWarning} 起进入关注区（≥${VIBRATION_WARN} mm/s，${l.warningReadings} 次），${l.hoursAhead} 小时后发生「${l.repair.symptom}」（原因 ${l.repair.cause}，停机 ${l.repair.downtimeMin} 分钟）`)
+          : ['维修记录前没有出现关注区读数'],
       },
     ];
     if (focus) {
@@ -61,15 +65,15 @@ export const equipmentAgent: AgentDefinition = {
       });
     }
     return {
-      headline: avgLead !== null ? `振动超限平均提前 ${avgLead} 天预示了故障` : `${flagged.length} 台设备出现过振动超限`,
+      headline: avgLead !== null ? `${leads.length}/${repairs.length} 次故障前振动已进入关注区，平均提前 ${avgLead} 小时` : `${flagged.length} 台设备出现过振动超限`,
       blocks,
       facts: [
-        ...(avgLead !== null ? [`${leads.length} 次故障前 14 天内出现过振动超限，平均提前 ${avgLead} 天`] : []),
+        ...(avgLead !== null ? [`${repairs.length} 次故障中有 ${leads.length} 次在发生前 ${PRECURSOR_HOURS} 小时内振动已多次进入关注区（≥${VIBRATION_WARN} mm/s），平均提前 ${avgLead} 小时`] : []),
         ...health.filter((h) => h.missing > 0).slice(0, 3).map((h) => `${h.equipment.id} 缺失 ${h.missing} 条读数`),
       ],
-      pending: ['超限与故障的对应基于时间先后，需设备工程师结合维修报告确认因果'],
+      pending: ['前兆与故障的对应基于时间先后，需设备工程师结合维修报告确认因果'],
       suggestions: [
-        `振动连续两小时 ≥ ${VIBRATION_ALARM} mm/s 时自动派点检单，≥ ${VIBRATION_WARN} mm/s 进入关注清单`,
+        `24 小时内 ≥${PRECURSOR_READINGS} 次读数进入关注区（≥${VIBRATION_WARN} mm/s）即派点检单，按历史可提前约 ${avgLead ?? '—'} 小时处置；≥${VIBRATION_ALARM} mm/s 立即停机检查`,
         '缺失读数较多的设备先检查传感器与采集网关',
       ],
       artifacts: [
@@ -149,7 +153,8 @@ export const scheduleAgent: AgentDefinition = {
     '你负责排产与交期。排产是有限产能的贪心结果（产能按产线日工时、单件工时与近 7 日 OEE 折算），先说哪些工单会延期，再给调线、加班或外协建议；不要承诺未计算的日期。',
   starters: ['哪些工单会延期？', '战略客户的工单能按期交吗', '各产线负荷怎么样'],
   context({ db, now }) {
-    const { rows, unplaceable } = schedule(db, now);
+    const plans = compareStrategies(db, now);
+    const { rows, unplaceable, strategy } = plans[0];
     const late = rows.filter((r) => r.late);
     const strategic = rows.filter((r) => r.order.tier === '战略客户');
     const byLine = new Map<string, number>();
@@ -166,9 +171,16 @@ export const scheduleAgent: AgentDefinition = {
         },
         { title: '战略客户工单', lines: strategic.map((r) => `${r.order.id}：${r.line}，${r.finish} 完成，交期 ${r.order.due}${r.late ? '（延期）' : ''}`) },
         { title: '产线负荷', lines: [...byLine].sort().map(([line, n]) => `${line}：${n} 张工单`) },
+        {
+          title: '排序策略对比（取加权延期最小者）',
+          lines: plans.map((p) => `${STRATEGY_LABEL[p.strategy]}：延期 ${p.late} 张，加权延期 ${p.weightedLateness} 天${p.strategy === strategy ? '（采用）' : ''}`),
+        },
         ...(unplaceable.length ? [{ title: '无法排入的工单', lines: unplaceable.map((o) => `${o.id}：可产线 ${o.lines.join('/')} 均无产能数据`) }] : []),
       ],
-      facts: [`共 ${rows.length} 张工单，预计延期 ${late.length} 张，换型合计 ${changeoverTotal} 分钟`],
+      facts: [
+        `共 ${rows.length} 张工单，采用「${STRATEGY_LABEL[strategy]}」后预计延期 ${late.length} 张，换型合计 ${changeoverTotal} 分钟`,
+        ...plans.slice(1).map((p) => `「${STRATEGY_LABEL[p.strategy]}」会延期 ${p.late} 张（加权 ${p.weightedLateness} 天）`),
+      ],
       pending: late.length ? ['排产按近 7 日 OEE 折算产能，加班、外协与插单需生产经理确认'] : [],
       suggestions: late.slice(0, 3).map((r) => `${r.order.id}：评估改排到 ${r.order.lines.filter((l) => l !== r.line).join('/') || '其他产线'} 或加班`),
       actions: late.slice(0, 5).map((r) => ({ title: `确认 ${r.order.id} 延期处置（加班 / 调线 / 外协）`, owner: '生产经理', due: isoDate(addDays(now, 1)) })),
@@ -178,7 +190,7 @@ export const scheduleAgent: AgentDefinition = {
           title: '排产计划',
           columns: ['工单', '产品', '数量', '客户等级', '优先级', '产线', '开工', '完工', '交期', '余量(天)', '换型(分钟)'],
           rows: rows.map((r) => [r.order.id, r.order.product, r.order.qty, r.order.tier, r.order.priority, r.line, r.start, r.finish, r.order.due, r.slackDays, r.changeoverMin]),
-          note: '贪心有限产能排产：优先级高、交期早的先排；日产能 = min(最大日产能, 日工时 × 3600 ÷ 单件工时 × 近 7 日 OEE)',
+          note: `有限产能排产，比较三种排序后采用「${STRATEGY_LABEL[strategy]}」（加权延期 = 延期天数 × 客户权重，战略 3、重点 2、一般 1）；日产能 = min(最大日产能, 日工时 × 3600 ÷ 单件工时 × 近 7 日 OEE)`,
         },
       ],
     };

@@ -7,7 +7,7 @@ import type { DomainModule } from '../../core/module.ts';
 import { syncStateAlerts } from '../../core/state-alerts.ts';
 import { addMinutes, chinaStamp, round } from '../../core/util.ts';
 import { equipmentAgent, oeeAgent, scheduleAgent } from './agents.ts';
-import { equipmentHealth, lineOee, listEquipment, listRepairs, OEE_TARGET, plantLosses, schedule, VIBRATION_ALARM } from './data.ts';
+import { equipmentHealth, lineOee, listEquipment, listRepairs, OEE_TARGET, plantLosses, PRECURSOR_READINGS, readings, schedule, VIBRATION_ALARM, VIBRATION_WARN } from './data.ts';
 import { seedProduction } from './seed.ts';
 
 const Reading = z.object({
@@ -57,7 +57,7 @@ export const productionModule: DomainModule = {
   agents: [equipmentAgent, oeeAgent, scheduleAgent],
 
   eventTypes: [
-    { type: 'vibration_alarm', label: '振动超限', severity: 'critical', kind: 'state' },
+    { type: 'vibration_alarm', label: '设备振动预警', severity: 'warn', kind: 'state' },
     { type: 'oee_low', label: 'OEE 低于目标', severity: 'warn', kind: 'state' },
     { type: 'order_due_risk', label: '工单交期风险', severity: 'critical', kind: 'state' },
   ],
@@ -70,10 +70,10 @@ export const productionModule: DomainModule = {
       threshold: 1,
       severity: 'critical',
       groupBy: (e) => e.source.station ?? null,
-      describe: (events, equipment) => ({ title: `${equipment} 振动超限`, summary: events.at(-1)!.summary }),
+      describe: (events) => ({ title: events.at(-1)!.title, summary: events.at(-1)!.summary }),
       playbook: {
-        decision: '安排振动超限设备停机点检，评估是否提前保养',
-        impact: '历史数据中振动超限后数天内发生了故障停机',
+        decision: '安排出现振动前兆的设备停机点检，评估是否提前保养',
+        impact: '历史上该类前兆出现后一到三天内发生了故障停机',
         owner: '设备主管',
         dueHours: 8,
         weight: 2,
@@ -146,25 +146,26 @@ export const productionModule: DomainModule = {
         : [],
       '排产规则',
     );
+    // Live condition from readings in the last 24 hours (China time): a run in the warning zone is a precursor,
+    // a reading past the alarm line is an alarm.
     const since = chinaStamp(addMinutes(now, -24 * 60));
-    const live = equipmentHealth(db).filter((h) => h.alarms.some((a) => a.ts >= since));
-    syncStateAlerts(
-      deps,
-      'production',
-      'vibration_alarm',
-      live.map((h) => {
-        const last = h.alarms.at(-1)!;
-        const lead = h.leadDays.length ? `；历史上该设备超限后 ${h.leadDays[0].days} 天发生过「${h.leadDays[0].repair.symptom}」` : '';
-        return {
-          key: h.equipment.id,
-          station: h.equipment.id,
-          title: `${h.equipment.id} 振动 ${last.vibration} mm/s`,
-          summary: `${h.equipment.name}（${h.equipment.line}）${last.ts} 振动 ${last.vibration} mm/s，超过 ISO 告警线 ${VIBRATION_ALARM}；基线 ${h.baseline}${lead}`,
-          payload: { equipmentId: h.equipment.id, line: h.equipment.line, vibration: last.vibration, baseline: h.baseline },
-        };
-      }),
-      '设备健康规则',
-    );
+    const alerts = equipmentHealth(db).flatMap((h) => {
+      const recent = readings(db, h.equipment.id).filter((r) => r.ts >= since && r.vibration !== null);
+      const warn = recent.filter((r) => r.vibration! >= VIBRATION_WARN);
+      const alarm = recent.filter((r) => r.vibration! >= VIBRATION_ALARM);
+      if (alarm.length === 0 && warn.length < PRECURSOR_READINGS) return [];
+      const peak = Math.max(...warn.map((r) => r.vibration!));
+      const history = h.precursors.length ? `；历史上该设备进入关注区后约 ${h.precursors[0].hoursAhead} 小时发生「${h.precursors[0].repair.symptom}」` : '';
+      return [{
+        key: h.equipment.id,
+        station: h.equipment.id,
+        severity: alarm.length ? ('critical' as const) : ('warn' as const),
+        title: alarm.length ? `${h.equipment.id} 振动超限 ${peak} mm/s` : `${h.equipment.id} 出现故障前兆`,
+        summary: `${h.equipment.name}（${h.equipment.line}）24 小时内 ${warn.length} 次读数 ≥${VIBRATION_WARN} mm/s，峰值 ${peak}，基线 ${h.baseline}${history}`,
+        payload: { equipmentId: h.equipment.id, line: h.equipment.line, vibration: peak, baseline: h.baseline, warnings: warn.length },
+      }];
+    });
+    syncStateAlerts(deps, 'production', 'vibration_alarm', alerts, '设备健康规则');
   },
 
   situation({ db, now, signals }) {

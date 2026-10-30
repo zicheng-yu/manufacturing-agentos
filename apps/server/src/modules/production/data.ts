@@ -96,10 +96,24 @@ export interface Health {
   recentAlarms: Reading[];
   warnings: number;
   lastRepair: Repair | null;
-  /** For each repair: days between the last vibration alarm before it (within 14 days) and the failure. */
-  leadDays: { repair: Repair; days: number }[];
+  /** For each repair: when vibration first entered the warning zone in the 72 hours before it, and how often. */
+  precursors: Precursor[];
   status: '正常' | '关注' | '告警';
 }
+
+export interface Precursor {
+  repair: Repair;
+  firstWarning: string;
+  hoursAhead: number;
+  warningReadings: number;
+}
+
+/** Warning-zone readings within this many hours before a failure count as its precursor. */
+export const PRECURSOR_HOURS = 72;
+/** Readings in the warning zone within 24 hours that make a live precursor alert. */
+export const PRECURSOR_READINGS = 3;
+
+const parseStamp = (ts: string) => Date.parse(ts.replace(' ', 'T') + ':00+08:00');
 
 /**
  * Per-equipment condition from the hourly sensor series: a robust baseline (median), readings past the ISO alarm
@@ -114,13 +128,22 @@ export function equipmentHealth(db: DB, recentHours = 72): Health[] {
     const recent = series.slice(-recentHours);
     const recentAlarms = recent.filter((r) => (r.vibration ?? 0) >= VIBRATION_ALARM);
     const mine = repairs.filter((r) => r.equipmentId === equipment.id);
-    const leadDays = mine
-      .map((repair) => {
-        const before = alarms.filter((a) => a.ts <= repair.occurredAt && Date.parse(repair.occurredAt) - Date.parse(a.ts) <= 14 * 86_400_000);
-        const last = before.at(-1);
-        return last ? { repair, days: round((Date.parse(repair.occurredAt) - Date.parse(last.ts)) / 86_400_000, 1) } : null;
+    const precursors = mine
+      .map((repair): Precursor | null => {
+        const failedAt = parseStamp(repair.occurredAt);
+        const window = series.filter((r) => {
+          const t = parseStamp(r.ts);
+          return t < failedAt && failedAt - t <= PRECURSOR_HOURS * 3600_000 && (r.vibration ?? 0) >= VIBRATION_WARN;
+        });
+        if (window.length < PRECURSOR_READINGS) return null;
+        return {
+          repair,
+          firstWarning: window[0].ts,
+          hoursAhead: Math.round((failedAt - parseStamp(window[0].ts)) / 3600_000),
+          warningReadings: window.length,
+        };
       })
-      .filter((x): x is { repair: Repair; days: number } => x !== null);
+      .filter((x): x is Precursor => x !== null);
     const latest = [...series].reverse().find((r) => r.vibration !== null) ?? null;
     return {
       equipment,
@@ -132,7 +155,7 @@ export function equipmentHealth(db: DB, recentHours = 72): Health[] {
       recentAlarms,
       warnings: recent.filter((r) => (r.vibration ?? 0) >= VIBRATION_WARN && (r.vibration ?? 0) < VIBRATION_ALARM).length,
       lastRepair: mine.at(-1) ?? null,
-      leadDays,
+      precursors,
       status: recentAlarms.length ? '告警' : (latest?.vibration ?? 0) >= VIBRATION_WARN ? '关注' : '正常',
     };
   });
@@ -283,11 +306,34 @@ export interface Scheduled {
   late: boolean;
 }
 
+export type Strategy = 'priority' | 'due' | 'slack';
+export const STRATEGY_LABEL: Record<Strategy, string> = { priority: '优先级优先', due: '交期优先', slack: '加权松弛优先' };
+/** Lateness weight by customer tier: a strategic customer's late day counts three times a general one's. */
+const TIER_WEIGHT: Record<string, number> = { 战略客户: 3, 重点客户: 2, 一般客户: 1 };
+
+export interface Plan {
+  strategy: Strategy;
+  rows: Scheduled[];
+  unplaceable: WorkOrder[];
+  late: number;
+  /** Σ late days × tier weight. */
+  weightedLateness: number;
+}
+
+function order(orders: WorkOrder[], strategy: Strategy, now: Date): WorkOrder[] {
+  const daysLeft = (o: WorkOrder) => (Date.parse(o.due) - now.getTime()) / 86_400_000;
+  const sorted = [...orders];
+  if (strategy === 'priority') sorted.sort((a, b) => b.priority - a.priority || a.due.localeCompare(b.due));
+  else if (strategy === 'due') sorted.sort((a, b) => a.due.localeCompare(b.due) || b.priority - a.priority);
+  else sorted.sort((a, b) => daysLeft(a) / (TIER_WEIGHT[a.tier] ?? 1) - daysLeft(b) / (TIER_WEIGHT[b.tier] ?? 1));
+  return sorted;
+}
+
 /**
- * Greedy finite-capacity schedule from tomorrow: highest priority (then earliest due) first, each order to the
- * feasible line that finishes it soonest. Daily output = min(max daily capacity, hours × 3600 / unit seconds × OEE).
+ * Finite-capacity schedule from tomorrow: orders in the strategy's sequence, each to the feasible line that
+ * finishes it soonest. Daily output = min(max daily capacity, hours × 3600 / unit seconds × OEE).
  */
-export function schedule(db: DB, now: Date): { rows: Scheduled[]; unplaceable: WorkOrder[] } {
+export function planWith(db: DB, now: Date, strategy: Strategy): Plan {
   const lines = new Map(listLines(db).map((l) => [l.id, l]));
   const oee = new Map(lineOee(db).map((l) => [l.line, l.oee / 100]));
   const plantOee = avg([...oee.values()]) || 0.7;
@@ -295,35 +341,42 @@ export function schedule(db: DB, now: Date): { rows: Scheduled[]; unplaceable: W
   const start = addDays(new Date(isoDate(now) + 'T00:00:00Z'), 1);
   const rows: Scheduled[] = [];
   const unplaceable: WorkOrder[] = [];
-  const orders = [...listOrders(db)].sort((a, b) => b.priority - a.priority || a.due.localeCompare(b.due));
-  for (const order of orders) {
+  for (const o of order(listOrders(db), strategy, now)) {
     let best: { line: string; begin: number; end: number; changeover: number } | null = null;
-    for (const lineId of order.lines) {
+    for (const lineId of o.lines) {
       const line = lines.get(lineId);
       const s = state.get(lineId);
       if (!line || !s) continue;
-      const daily = Math.min(line.maxDaily, ((line.hours * 3600) / order.unitSeconds) * (oee.get(lineId) ?? plantOee));
-      const changeover = changeoverMinutes(db, s.last, order.product);
+      const daily = Math.min(line.maxDaily, ((line.hours * 3600) / o.unitSeconds) * (oee.get(lineId) ?? plantOee));
+      const changeover = changeoverMinutes(db, s.last, o.product);
       const begin = s.day + changeover / (line.hours * 60);
-      const end = begin + order.qty / daily;
+      const end = begin + o.qty / daily;
       if (!best || end < best.end) best = { line: lineId, begin, end, changeover };
     }
     if (!best) {
-      unplaceable.push(order);
+      unplaceable.push(o);
       continue;
     }
-    state.set(best.line, { day: best.end, last: order.product });
+    state.set(best.line, { day: best.end, last: o.product });
     const finish = isoDate(addDays(start, Math.ceil(best.end) - 1));
-    const slackDays = Math.round((Date.parse(order.due) - Date.parse(finish)) / 86_400_000);
-    rows.push({
-      order,
-      line: best.line,
-      start: isoDate(addDays(start, Math.floor(best.begin))),
-      finish,
-      changeoverMin: best.changeover,
-      slackDays,
-      late: slackDays < 0,
-    });
+    const slackDays = Math.round((Date.parse(o.due) - Date.parse(finish)) / 86_400_000);
+    rows.push({ order: o, line: best.line, start: isoDate(addDays(start, Math.floor(best.begin))), finish, changeoverMin: best.changeover, slackDays, late: slackDays < 0 });
   }
-  return { rows, unplaceable };
+  const late = rows.filter((r) => r.late);
+  return {
+    strategy,
+    rows,
+    unplaceable,
+    late: late.length,
+    weightedLateness: late.reduce((s, r) => s + -r.slackDays * (TIER_WEIGHT[r.order.tier] ?? 1), 0),
+  };
+}
+
+/** Try each sequencing strategy and keep the one with the least tier-weighted lateness. */
+export function compareStrategies(db: DB, now: Date): Plan[] {
+  return (['priority', 'due', 'slack'] as Strategy[]).map((s) => planWith(db, now, s)).sort((a, b) => a.weightedLateness - b.weightedLateness || a.late - b.late);
+}
+
+export function schedule(db: DB, now: Date): Plan {
+  return compareStrategies(db, now)[0];
 }
