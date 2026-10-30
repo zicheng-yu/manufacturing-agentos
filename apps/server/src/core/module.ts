@@ -6,6 +6,7 @@ import type {
   Domain,
   Level,
   Metric,
+  PolicyResponse,
   Role,
   Severity,
   Signal,
@@ -98,8 +99,10 @@ export interface AgentDefinition {
   /** Role-specific instructions appended to the shared system prompt. */
   instructions: string;
   starters: string[];
-  /** Deterministic analysis for this question. Runs before (and without) the model. */
-  context(ctx: AgentCtx): AgentContext;
+  /** A narrowly scoped employee service, available to every authenticated account. */
+  companyService?: boolean;
+  /** Prepare grounded analysis; a service can also return an already validated model response. */
+  context(ctx: AgentCtx): AgentContext | Promise<AgentContext>;
 }
 
 export interface AgentCtx extends ModuleCtx {
@@ -111,6 +114,9 @@ export interface AgentCtx extends ModuleCtx {
 }
 
 export interface AgentContext {
+  /** A module may supply an already validated response, skipping generic model composition. */
+  preparedResponse?: { answer: string; mode: 'llm' | 'offline' };
+  policy?: PolicyResponse;
   /** One-line conclusion shown when no model is configured. */
   headline?: string;
   /** Data the model must ground its answer in; also rendered as the offline answer. */

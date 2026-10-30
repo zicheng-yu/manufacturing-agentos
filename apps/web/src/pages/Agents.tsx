@@ -3,7 +3,7 @@ import { MessageSquarePlus, SendHorizontal, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { api, useApi } from '../api.ts';
-import { Actions, Answer, Artifacts, Evidence } from '../components/ResultView.tsx';
+import { Actions, Answer, Artifacts, Evidence, PolicySources } from '../components/ResultView.tsx';
 import { useSession } from '../session.tsx';
 import { cx, DOMAIN_ICONS, Empty, scopeLabel, Spinner, timeAgo } from '../ui.tsx';
 
@@ -38,7 +38,7 @@ function TurnView({ turn, onDelete }: { turn: Turn; onDelete: () => void }) {
         <div className="flex items-start justify-between gap-3">
           <h3 className="text-[15px] font-semibold text-slate-900">{turn.result.title}</h3>
           <div className="flex shrink-0 items-center gap-2 text-[11px] text-slate-400">
-            <span>{turn.mode === 'llm' ? '模型撰写' : '规则分析'} · {(turn.latencyMs / 1000).toFixed(1)} 秒</span>
+            <span>{turn.result.policy ? (turn.mode === 'llm' ? 'AI 检索' : '制度检索') : (turn.mode === 'llm' ? '模型撰写' : '规则分析')} · {(turn.latencyMs / 1000).toFixed(1)} 秒</span>
             <button
               onClick={() => {
                 if (confirm('删除这一轮问答？它写入的记忆、待办和事件会一并删除。')) onDelete();
@@ -51,6 +51,7 @@ function TurnView({ turn, onDelete }: { turn: Turn; onDelete: () => void }) {
           </div>
         </div>
         <Answer markdown={turn.result.answer} />
+        <PolicySources result={turn.result} />
         <Artifacts result={turn.result} />
         <Evidence result={turn.result} />
         <Actions result={turn.result} />

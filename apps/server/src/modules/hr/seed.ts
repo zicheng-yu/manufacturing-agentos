@@ -1,6 +1,7 @@
 import type { EventInput } from '../../core/events.ts';
 import type { ModuleCtx } from '../../core/module.ts';
 import { addDays, isoDate } from '../../core/util.ts';
+import { IMPORT_LEGACY_POLICIES } from './knowledge.ts';
 
 const DEPARTMENTS = [
   ['D-GM', '总经办', 6, 6],
@@ -43,6 +44,7 @@ export function seedHr({ db, now }: ModuleCtx): void {
 
   const policy = db.prepare('INSERT INTO hr_policies (id, category, title, keywords, content) VALUES (?, ?, ?, ?, ?)');
   for (const p of POLICIES) policy.run(...p);
+  db.exec(IMPORT_LEGACY_POLICIES);
 
   const request = db.prepare('INSERT INTO hr_requests (id, category, question, status, created_at) VALUES (?, ?, ?, ?, ?)');
   request.run('REQ-301', '社保', '异地就医备案怎么办理？', '待处理', day(-1));

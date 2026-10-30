@@ -5,6 +5,7 @@ import { api, useApi } from '../../api.ts';
 import { Actions, Answer, Artifacts, Evidence } from '../../components/ResultView.tsx';
 import { useLive } from '../../session.tsx';
 import { Card, cx, Empty, Spinner } from '../../ui.tsx';
+import { KnowledgeEditor, KnowledgeManager } from './KnowledgeManager.tsx';
 
 interface ServiceRequest {
   id: string;
@@ -14,6 +15,7 @@ interface ServiceRequest {
   createdAt: string;
   answer: string;
   handledBy: string | null;
+  history: string[];
 }
 
 interface RoleProfile {
@@ -25,12 +27,13 @@ interface RoleProfile {
 const FIELD = 'mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100 disabled:bg-slate-50';
 const BUTTON = 'rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:cursor-wait disabled:opacity-50';
 const LEVELS = ['0 · 未掌握', '1 · 了解', '2 · 可独立完成', '3 · 可指导他人'];
-const MODES = [{ id: 'service', label: '员工服务' }, { id: 'recruitment', label: '招聘初筛' }, { id: 'training', label: '岗位培训' }] as const;
+const MODES = [{ id: 'service', label: '员工服务' }, { id: 'knowledge', label: '制度知识库' }, { id: 'recruitment', label: '招聘初筛' }, { id: 'training', label: '岗位培训' }] as const;
 type Mode = typeof MODES[number]['id'];
 
 export function HrWorkbench({ onChanged }: { onChanged: () => void }) {
   const [mode, setMode] = useState<Mode>('service');
   const [busy, setBusy] = useState(false);
+  const [knowledgeId, setKnowledgeId] = useState('');
   return (
     <Card title="HR 工作台">
       <div className="flex flex-wrap gap-2 border-b border-slate-100 p-3" aria-label="HR 工作流程">
@@ -42,13 +45,14 @@ export function HrWorkbench({ onChanged }: { onChanged: () => void }) {
         ))}
       </div>
       {mode === 'service'
-        ? <ServiceQueue onChanged={onChanged} onBusy={setBusy} />
+        ? <ServiceQueue onChanged={onChanged} onBusy={setBusy} onDraft={(id) => { setKnowledgeId(id); setMode('knowledge'); }} />
+        : mode === 'knowledge' ? <KnowledgeManager selectedId={knowledgeId} onBusy={setBusy} onChanged={onChanged} />
         : <TalentWorkbench key={mode} mode={mode} onBusy={setBusy} />}
     </Card>
   );
 }
 
-function ServiceQueue({ onChanged, onBusy }: { onChanged: () => void; onBusy: (busy: boolean) => void }) {
+function ServiceQueue({ onChanged, onBusy, onDraft }: { onChanged: () => void; onBusy: (busy: boolean) => void; onDraft: (id: string) => void }) {
   const requests = useApi<ServiceRequest[]>('/api/modules/hr/requests');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showResolved, setShowResolved] = useState(false);
@@ -63,7 +67,7 @@ function ServiceQueue({ onChanged, onBusy }: { onChanged: () => void; onBusy: (b
     <div className="space-y-4 p-4">
       <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
         <p className="text-slate-500">制度未覆盖的问题会自动进入队列，处理后保留答复记录。</p>
-        <Link to="/agents/hr.service" className="font-medium text-brand-700 hover:underline">向员工服务助手提问 →</Link>
+        <Link to="/employee-service" className="font-medium text-brand-700 hover:underline">打开公司制度助手 →</Link>
       </div>
       <label className="flex items-center gap-2 text-sm text-slate-600">
         <input type="checkbox" checked={showResolved} disabled={busy} onChange={(e) => setShowResolved(e.target.checked)} />
@@ -86,7 +90,7 @@ function ServiceQueue({ onChanged, onBusy }: { onChanged: () => void; onBusy: (b
           ))}
         </ul>
         {selected
-          ? <RequestEditor key={selected.id} request={selected} onBusy={(value) => { setBusy(value); onBusy(value); }} onSaved={() => {
+          ? <RequestEditor key={selected.id} request={selected} onDraft={onDraft} onBusy={(value) => { setBusy(value); onBusy(value); }} onSaved={() => {
               setSelectedId(null); setNotice('请求已更新'); void requests.reload(); onChanged();
             }} />
           : <p className="rounded-lg bg-slate-50 p-5 text-sm text-slate-500">选择一条请求，确认受理或填写答复。</p>}
@@ -96,7 +100,7 @@ function ServiceQueue({ onChanged, onBusy }: { onChanged: () => void; onBusy: (b
   );
 }
 
-function RequestEditor({ request, onBusy, onSaved }: { request: ServiceRequest; onBusy: (busy: boolean) => void; onSaved: () => void }) {
+function RequestEditor({ request, onBusy, onSaved, onDraft }: { request: ServiceRequest; onBusy: (busy: boolean) => void; onSaved: () => void; onDraft: (id: string) => void }) {
   const [answer, setAnswer] = useState(request.answer);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -110,8 +114,10 @@ function RequestEditor({ request, onBusy, onSaved }: { request: ServiceRequest; 
     finally { setBusy(false); onBusy(false); }
   }
   return (
+    <div className="space-y-4">
     <form onSubmit={(e) => { e.preventDefault(); void save('已解决'); }} className="space-y-3 rounded-lg border border-slate-200 p-4" aria-busy={busy}>
       <h3 className="text-sm font-semibold text-slate-800">{request.question}</h3>
+      {request.history?.length ? <details className="text-sm text-slate-500"><summary className="cursor-pointer">前序提问</summary><ul className="mt-2 list-inside list-disc">{request.history.map((text, i) => <li key={i}>{text}</li>)}</ul></details> : null}
       <label className="block text-sm text-slate-600">处理答复
         <textarea value={answer} onChange={(e) => setAnswer(e.target.value)} rows={4} maxLength={4000} disabled={busy} className={FIELD} placeholder="写下已核实的信息与后续办理步骤" />
       </label>
@@ -122,10 +128,15 @@ function RequestEditor({ request, onBusy, onSaved }: { request: ServiceRequest; 
         <button type="submit" disabled={busy} className={BUTTON}>{busy ? '保存中…' : '保存答复并解决'}</button>
       </div>
     </form>
+    {request.status === '已解决' && request.answer ? <details>
+      <summary className="cursor-pointer text-sm font-medium text-brand-700">整理为通用 FAQ 草稿</summary>
+      <div className="mt-3"><KnowledgeEditor sourceRequest={request} onBusy={onBusy} onSaved={(version) => onDraft(version.id)} /></div>
+    </details> : null}
+    </div>
   );
 }
 
-function TalentWorkbench({ mode, onBusy }: { mode: Exclude<Mode, 'service'>; onBusy: (busy: boolean) => void }) {
+function TalentWorkbench({ mode, onBusy }: { mode: 'recruitment' | 'training'; onBusy: (busy: boolean) => void }) {
   const roles = useApi<RoleProfile[]>('/api/modules/hr/roles');
   const [roleId, setRoleId] = useState('');
   const [busy, setBusy] = useState(false);
@@ -148,7 +159,7 @@ function TalentWorkbench({ mode, onBusy }: { mode: Exclude<Mode, 'service'>; onB
   );
 }
 
-function TalentForm({ role, mode, onBusy }: { role: RoleProfile; mode: Exclude<Mode, 'service'>; onBusy: (busy: boolean) => void }) {
+function TalentForm({ role, mode, onBusy }: { role: RoleProfile; mode: 'recruitment' | 'training'; onBusy: (busy: boolean) => void }) {
   const [candidateId, setCandidateId] = useState('');
   const [years, setYears] = useState('');
   const [levels, setLevels] = useState<Record<string, string>>({});

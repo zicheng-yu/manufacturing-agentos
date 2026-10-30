@@ -113,8 +113,7 @@ export interface PolicyLookup {
   gaps: string[];
 }
 
-export function lookupPolicies(db: DB, question: string, history: string[] = []): PolicyLookup {
-  const policies = listPolicies(db);
+export function lookupPolicies(db: DB, question: string, history: string[] = [], policies = listPolicies(db)): PolicyLookup {
   const match = (text: string) => policies
       .map((policy) => ({
         policy,

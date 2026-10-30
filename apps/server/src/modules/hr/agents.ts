@@ -1,36 +1,16 @@
 import type { AgentDefinition } from '../../core/module.ts';
 import { addDays, isoDate } from '../../core/util.ts';
-import { daysOpen, listAttrition, listDepartments, listPositions, lookupPolicies } from './data.ts';
-import { serviceRequestEvent, serviceTaskTitle } from './requests.ts';
+import { daysOpen, listAttrition, listDepartments, listPositions } from './data.ts';
 import { jobDescription, readStructuredInput, roleChoices, roleFromQuestion, screenCandidates, ScreeningSchema, SKILL_SCALE, trainingPlan, TrainingSchema } from './talent.ts';
+import { policyContext } from './policy-agent.ts';
 
 export const serviceAgent: AgentDefinition = {
-  id: 'hr.service',
-  module: 'hr',
-  name: '员工服务助手',
-  description: '基于制度库回答考勤、假期、社保、报销等高频问题，答不了的转人工',
-  instructions: '你负责员工服务问答。只依据制度库原文回答并注明制度编号；制度库没有覆盖的问题不要推测，写进 pending 并建议转 HR 人工处理。',
-  starters: ['年假有几天？没休完怎么办', '出差住宿报销标准是多少', '异地就医备案怎么办理'],
-  context({ now, input, history, db, account }) {
-    const { hits, gaps } = lookupPolicies(db, input, history);
-    const handoff = gaps.length > 0;
-    return {
-      headline: !hits.length ? '制度库未覆盖该问题，已转 HR 人工处理' : `依据《${hits[0].policy.title}》（${hits[0].policy.id}）${handoff ? '，未覆盖部分转人工' : ''}`,
-      blocks: [
-        ...hits.map((h) => ({ title: `${h.policy.id} ${h.policy.title}`, lines: [h.policy.content] })),
-        ...(handoff ? [{ title: '转 HR 人工处理', lines: [...gaps, '已记录员工服务请求；可在 HR 模块查看，在事件中心确认或解决。'] }] : []),
-      ],
-      facts: hits.map((h) => `${h.policy.id}《${h.policy.title}》：${h.policy.content}`),
-      pending: gaps,
-      actions: handoff ? [{ title: serviceTaskTitle(input, account.id), owner: 'HR 经理', due: isoDate(addDays(now, 1)) }] : [],
-      events: handoff ? [serviceRequestEvent(input, account.id, hits[0]?.policy.category)] : [],
-      artifacts: hits.length ? [{
-        kind: 'table', title: '制度依据', columns: ['编号', '类别', '制度', '原文'],
-        rows: hits.map(({ policy }) => [policy.id, policy.category, policy.title, policy.content]),
-        note: '虚构演示制度；未覆盖事项交 HR 核定。',
-      }] : [],
-    };
-  },
+  id: 'hr.service', module: 'hr', companyService: true,
+  name: '公司制度助手',
+  description: '查询公司现行制度与已审核 FAQ，带条款和版本回答，缺信息先追问，未覆盖转 HR',
+  instructions: '只使用当前有效的已发布制度与已审核 FAQ；核对原文引用，不猜测个人记录，未覆盖时转 HR。',
+  starters: ['我想请假', '年假有几天？没休完怎么办', '出差住宿报销标准是多少', '公司有班车吗？'],
+  context: policyContext,
 };
 
 export const orgAgent: AgentDefinition = {

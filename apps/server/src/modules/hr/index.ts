@@ -2,11 +2,12 @@ import type { Level } from '@agentos/shared';
 import type { DomainModule } from '../../core/module.ts';
 import { addDays, isoDate, newId } from '../../core/util.ts';
 import { orgAgent, recruitmentAgent, serviceAgent, trainingAgent } from './agents.ts';
-import { daysOpen, listAttrition, listDepartments, listPolicies, listPositions } from './data.ts';
+import { daysOpen, listAttrition, listDepartments, listPositions } from './data.ts';
 import { listRequests, recordServiceRequest, REQUEST_SCHEMA, ServicePayload } from './requests.ts';
 import { hrRoutes } from './routes.ts';
 import { hrSeedEvents, seedHr } from './seed.ts';
 import { listRoleProfiles } from './talent.ts';
+import { activeKnowledge, KNOWLEDGE_SCHEMA } from './knowledge.ts';
 
 const PRIVATE_FIELDS = ['employeeName', 'reason'];
 
@@ -30,7 +31,8 @@ export const hrModule: DomainModule = {
     CREATE TABLE IF NOT EXISTS hr_requests (
       id TEXT PRIMARY KEY, category TEXT NOT NULL, question TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL
     );
-    ${REQUEST_SCHEMA}`,
+    ${REQUEST_SCHEMA}
+    ${KNOWLEDGE_SCHEMA}`,
   seed: seedHr,
   seedEvents: hrSeedEvents,
   agents: [serviceAgent, orgAgent, recruitmentAgent, trainingAgent],
@@ -167,7 +169,7 @@ export const hrModule: DomainModule = {
           kind: 'table',
           title: '制度库',
           columns: ['编号', '类别', '制度', '内容'],
-          rows: listPolicies(db).map((p) => [p.id, p.category, p.title, p.content]),
+          rows: activeKnowledge(db, now).map((p) => [p.documentId + ' v' + p.version, p.category, p.title, p.content]),
           note: '演示制度，不构成法律意见',
         },
       ],

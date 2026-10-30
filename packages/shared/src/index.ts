@@ -47,6 +47,7 @@ export interface AgentInfo {
   name: string;
   description: string;
   starters: string[];
+  companyService?: boolean;
 }
 
 export interface Catalog {
@@ -135,6 +136,45 @@ export interface AgentResult {
   actions: ActionItem[];
   artifacts: Artifact[];
   eventIds: string[];
+  policy?: PolicyResponse;
+}
+
+export interface PolicyCitation {
+  sourceId: string;
+  documentId: string;
+  title: string;
+  version: number;
+  section: number;
+  kind: 'policy' | 'faq';
+  quote: string;
+  scope: string;
+  effectiveFrom: string | null;
+}
+
+export interface PolicyResponse {
+  outcome: 'answered' | 'clarify' | 'handoff';
+  citations: PolicyCitation[];
+  questions: string[];
+}
+
+export interface KnowledgeVersion {
+  id: string;
+  documentId: string;
+  version: number;
+  revision: number;
+  kind: 'policy' | 'faq';
+  status: 'draft' | 'published';
+  title: string;
+  category: string;
+  keywords: string;
+  content: string;
+  scope: string;
+  effectiveFrom: string | null;
+  effectiveTo: string | null;
+  publishedBy: string | null;
+  publishedAt: string | null;
+  archived: boolean;
+  sourceRequestId: string | null;
 }
 
 export interface Turn {

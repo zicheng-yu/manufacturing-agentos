@@ -29,7 +29,8 @@ describe('accounts and permissions', () => {
     const cookie = await env.login('supply');
     const catalog = await env.get<Catalog>('/api/catalog', cookie);
     expect(catalog.body.modules.map((m) => m.id)).toEqual(['supply']);
-    expect(catalog.body.agents.every((a) => a.module === 'supply')).toBe(true);
+    expect(catalog.body.agents.filter((a) => !a.companyService).every((a) => a.module === 'supply')).toBe(true);
+    expect(catalog.body.agents.filter((a) => a.companyService).map((a) => a.id)).toEqual(['hr.service']);
     expect((await env.get('/api/modules/hr/overview', cookie)).status).toBe(403);
     expect((await env.get('/api/accounts', cookie)).status).toBe(403);
     const cockpit = await env.get<Cockpit>('/api/cockpit', cookie);

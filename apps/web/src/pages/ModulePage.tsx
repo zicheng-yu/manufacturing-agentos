@@ -1,13 +1,13 @@
 import type { AgentOSEvent, Domain, ModuleOverview, Signal } from '@agentos/shared';
 import { Bot } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { useApi } from '../api.ts';
 import { DataTable } from '../components/DataTable.tsx';
 import { EventRow, SignalDrawer, SignalList, SituationCard, useFlash } from '../components/Live.tsx';
 import { useLive, useSession } from '../session.tsx';
 import { Card, DOMAIN_ICONS, Empty, Spinner } from '../ui.tsx';
-import { HrWorkbench } from './hr/HrWorkbench.tsx';
+const HrWorkbench = lazy(() => import('./hr/HrWorkbench.tsx').then((m) => ({ default: m.HrWorkbench })));
 
 export function ModulePage() {
   const domain = useParams().domain as Domain;
@@ -77,7 +77,7 @@ export function ModulePage() {
         </div>
       </div>
 
-      {domain === 'hr' ? <HrWorkbench onChanged={() => { void overview.reload(); void events.reload(); void signals.reload(); }} /> : null}
+      {domain === 'hr' ? <Suspense fallback={<Spinner />}><HrWorkbench onChanged={() => { void overview.reload(); void events.reload(); void signals.reload(); }} /></Suspense> : null}
 
       <div className="grid gap-5 xl:grid-cols-3">
         <div className="space-y-5 xl:col-span-2">
