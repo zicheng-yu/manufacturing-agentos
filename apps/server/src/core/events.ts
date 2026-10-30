@@ -142,7 +142,12 @@ export function ingestEvent(deps: Deps, input: EventInput): { event: AgentOSEven
 
   const module = deps.registry.module(input.domain);
   module.onEvent?.(
-    { db: deps.db, now: at, emit: (follow) => ingestEvent(deps, { ...follow, at: follow.at ?? at, turnId: follow.turnId ?? input.turnId }) },
+    {
+      db: deps.db,
+      now: at,
+      emit: (follow) => ingestEvent(deps, { ...follow, at: follow.at ?? at, turnId: follow.turnId ?? input.turnId }),
+      resolve: (eventId) => setEventStatus(deps, eventId, 'resolved'),
+    },
     event,
     { created: !duplicate },
   );

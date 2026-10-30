@@ -32,12 +32,14 @@ export interface DomainModule {
   agents: AgentDefinition[];
   eventTypes: EventTypeDefinition[];
   signalRules: SignalRule[];
+  /** Sync business-state alerts before evaluation. Events emitted here are evaluated together afterward. */
+  beforeEvaluate?(deps: Deps): void;
   /** The executive cockpit card for this module. */
   situation(ctx: ModuleCtx & { signals: Signal[] }): SituationDraft;
   /** Metrics and tables shown on the module page. */
   overview(ctx: ModuleCtx): { metrics: Metric[]; tables: TableArtifact[] };
   /** Keep module tables in sync with incoming events, and derive follow-up events. */
-  onEvent?(ctx: ModuleCtx & { emit(input: EventInput): void }, event: AgentOSEvent, info: { created: boolean }): void;
+  onEvent?(ctx: ModuleCtx & { emit(input: EventInput): void; resolve(eventId: string): void }, event: AgentOSEvent, info: { created: boolean }): void;
   /** Extra HTTP routes, mounted under /api/modules/<id>/. */
   routes?(app: Hono<AppEnv>, deps: Deps): void;
 }

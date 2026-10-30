@@ -1,12 +1,13 @@
 import type { EventInput } from '../../core/events.ts';
 import type { ModuleCtx } from '../../core/module.ts';
-import { addDays, isoDate } from '../../core/util.ts';
+import { addDays } from '../../core/util.ts';
+import { qualityDate, shiftDate } from './calendar.ts';
 
 // Demo data. Customer names are fictional.
 const CASES = [
   [
     'QC-2024-017',
-    '黑一下 时好时坏 黑屏 金手指 发黑 氧化',
+    '黑一下 黑屏 金手指 发黑 氧化 金手指氧化 接触不良',
     'FPC 金手指氧化导致接触不良',
     '12.3 英寸中控屏模组',
     'FPC 接触不良',
@@ -18,7 +19,7 @@ const CASES = [
   ],
   [
     'QC-2025-003',
-    '发暗 暗角 亮度不均 一块暗',
+    '发暗 暗角 亮度不均 一块暗 扩散膜褶皱 明暗不一',
     '背光扩散膜褶皱造成亮度不均',
     '12.3 英寸中控屏模组',
     '背光亮度不均',
@@ -30,7 +31,7 @@ const CASES = [
   ],
   [
     'QC-2025-011',
-    '起泡 鼓包 气泡 边上',
+    '起泡 鼓包 气泡 偏光片气泡 贴合气泡',
     '偏光片贴合气泡',
     '10.25 英寸仪表屏模组',
     '偏光片气泡',
@@ -42,7 +43,7 @@ const CASES = [
   ],
   [
     'QC-2025-020',
-    '不亮 无显示 静电',
+    '不亮 无显示 静电 ESD 击穿',
     '驱动 IC 静电损伤',
     '10.25 英寸仪表屏模组',
     '驱动 IC 失效',
@@ -54,7 +55,7 @@ const CASES = [
   ],
   [
     'QC-2026-002',
-    '触摸 触控 失灵 点不动',
+    '触控失灵 点不动 触控无响应 溢胶',
     'OCA 溢胶导致触控失灵',
     '12.3 英寸中控屏模组',
     '触控失灵',
@@ -67,7 +68,7 @@ const CASES = [
 ] as const;
 
 export function seedQuality({ db, now }: ModuleCtx): void {
-  const day = (n: number) => isoDate(addDays(now, n));
+  const day = (n: number) => shiftDate(qualityDate(now), n);
   const insertCase = db.prepare(
     `INSERT INTO quality_cases (id, title, keywords, product, category, symptom, root_cause, countermeasure, supplier, closed_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -106,15 +107,6 @@ export function qualitySeedEvents(now: Date): EventInput[] {
       },
       source: { channel: 'seed', actor: '客户服务' },
       at: addDays(now, -2),
-    },
-    {
-      domain: 'quality',
-      type: 'capa_overdue',
-      title: 'CAPA-031 整改逾期',
-      summary: '偏光片贴合压力参数纳入 SPC 监控，原定昨日完成',
-      payload: { capaId: 'CAPA-031', complaintId: 'CC-2610-05', owner: '工艺 王工' },
-      source: { channel: 'seed', actor: '8D 跟踪' },
-      at: addDays(now, 0),
     },
   ];
 }
