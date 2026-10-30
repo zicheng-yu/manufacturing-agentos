@@ -1,0 +1,84 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: 'Inter', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
+  --color-brand-50: #eff6ff;
+  --color-brand-100: #dbeafe;
+  --color-brand-500: #3b82f6;
+  --color-brand-600: #1d4ed8;
+  --color-brand-700: #1e40af;
+  --color-ink-900: #0b1f3a;
+  --color-ink-800: #12294a;
+  --color-ink-700: #1c3a63;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: #f4f6fa;
+  color: #0f172a;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* A brief highlight on anything that just changed from the live stream. */
+@keyframes flash {
+  0% {
+    box-shadow: 0 0 0 0 rgb(239 68 68 / 0.45);
+  }
+  100% {
+    box-shadow: 0 0 0 12px rgb(239 68 68 / 0);
+  }
+}
+.flash {
+  animation: flash 1.2s ease-out 2;
+}
+
+@keyframes slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.slide-in {
+  animation: slide-in 0.35s ease-out;
+}
+
+.markdown p {
+  margin: 0.4rem 0;
+}
+.markdown ul,
+.markdown ol {
+  margin: 0.4rem 0;
+  padding-left: 1.25rem;
+}
+.markdown ul {
+  list-style: disc;
+}
+.markdown ol {
+  list-style: decimal;
+}
+.markdown li {
+  margin: 0.15rem 0;
+}
+.markdown strong {
+  font-weight: 600;
+  color: #0f172a;
+}
+.markdown table {
+  border-collapse: collapse;
+  margin: 0.5rem 0;
+  font-size: 0.8125rem;
+}
+.markdown th,
+.markdown td {
+  border: 1px solid #e2e8f0;
+  padding: 0.25rem 0.5rem;
+}

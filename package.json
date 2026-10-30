@@ -1,0 +1,26 @@
+{
+  "name": "manufacturing-agentos",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n server,web -c blue,green \"npm:dev -w @agentos/server\" \"npm:dev -w @agentos/web\"",
+    "build": "npm run build -w @agentos/web",
+    "start": "npm run start -w @agentos/server",
+    "test": "npm run test -w @agentos/server",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "seed": "npm run seed -w @agentos/server",
+    "replay": "tsx --env-file-if-exists=.env scripts/replay-demo.ts"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.6",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}
