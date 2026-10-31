@@ -56,7 +56,7 @@ export function Login() {
             </div>
           </div>
           <div>
-            <span className="font-mono text-[11px] tracking-[0.14em] text-sky-300">FROM SHOP FLOOR TO BOARDROOM</span>
+            <span className="font-mono text-[11px] tracking-[0.14em] text-brand-300">FROM SHOP FLOOR TO BOARDROOM</span>
             <h1 className="mt-3 text-[32px] leading-tight font-bold">
               一线发生的每一件事，
               <br />
@@ -71,7 +71,7 @@ export function Login() {
                 return (
                   <div key={d} className="rounded-[10px] border border-white/12 bg-ink-900/60 p-3">
                     <div className="flex items-center gap-2">
-                      <span className="num text-lg leading-none font-bold text-sky-300">{String(i + 1).padStart(2, '0')}</span>
+                      <span className="num text-lg leading-none font-bold text-brand-300">{String(i + 1).padStart(2, '0')}</span>
                       <Icon className="size-4 text-slate-300" />
                     </div>
                     <div className="mt-2 text-sm font-semibold">{DOMAIN_LABELS[d]}</div>

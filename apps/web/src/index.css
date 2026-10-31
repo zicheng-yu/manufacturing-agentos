@@ -6,33 +6,45 @@
   --font-num: 'Barlow Condensed', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
 
-  --color-brand-50: #e8effc;
-  --color-brand-100: #d3e0fa;
-  --color-brand-300: #9db8f0;
-  --color-brand-400: #6a93e6;
-  --color-brand-500: #3a72de;
-  --color-brand-600: #1d5bd6;
-  --color-brand-700: #1546a8;
-  --color-brand-800: #103a8a;
-  --color-ink-900: #0e1726;
-  --color-ink-800: #1b2638;
-  --color-ink-700: #26344a;
+  /*
+   * Warm-grey structure with one orange accent. The accent is for actions and the current location only; status
+   * has its own signature (stripes, outlines, solid chips) so an alert never reads as "just another orange thing".
+   * Names stay brand-* / slate-* / ink-* so every existing class follows the new palette.
+   */
+  --color-brand-50: #fdf1e8;
+  --color-brand-100: #f9dcc6;
+  --color-brand-300: #efaa7b;
+  --color-brand-400: #e8843f;
+  --color-brand-500: #dc6c26;
+  --color-brand-600: #c95412;
+  --color-brand-700: #a8430c;
+  --color-brand-800: #84350b;
+  /* Dark surfaces (table titles, the verification chip) become warm charcoal instead of steel blue. */
+  --color-ink-900: #1d2125;
+  --color-ink-800: #2b3035;
+  --color-ink-700: #3a4046;
 
-  /* Steel greys; 400 and up pass 4.5:1 on white so small labels stay legible. */
-  --color-slate-50: #f4f6f9;
-  --color-slate-100: #eef1f5;
-  --color-slate-200: #d5dbe3;
-  --color-slate-300: #b8c3d3;
-  --color-slate-400: #6b7686;
-  --color-slate-500: #5b6676;
-  --color-slate-600: #475569;
-  --color-slate-700: #334155;
-  --color-slate-800: #1e293b;
-  --color-slate-900: #0f172a;
+  /* Warm greys; 400 and up pass 4.5:1 on white so small labels stay legible. */
+  --color-slate-50: #f9f9f7;
+  --color-slate-100: #f3f3f0;
+  --color-slate-200: #e3e3de;
+  --color-slate-300: #cfcfc8;
+  --color-slate-400: #6f747b;
+  --color-slate-500: #5d636b;
+  --color-slate-600: #4a5058;
+  --color-slate-700: #353a40;
+  --color-slate-800: #25292e;
+  --color-slate-900: #1d2125;
 
   --color-alert: #c81e1e;
-  --color-watch: #fde7b0;
-  --color-watch-ink: #7a4a00;
+  --color-alert-ink: #b01616;
+  --color-watch: #f8d34d;
+  --color-watch-bar: #f2b705;
+  --color-watch-ink: #3d2a00;
+  --color-watch-soft: #fcf4e4;
+  --color-watch-line: #efdcb0;
+  --color-ok: #2e7d4f;
+  --color-page: #f6f6f4;
 }
 
 html,
@@ -42,7 +54,7 @@ body,
 }
 
 body {
-  background: var(--color-slate-100);
+  background: var(--color-page);
   color: var(--color-slate-900);
   -webkit-font-smoothing: antialiased;
   overflow-wrap: anywhere;
@@ -63,9 +75,18 @@ input, select, textarea { min-width: 0; max-width: 100%; }
   font-variant-numeric: tabular-nums;
 }
 
-/* Safety stripe: only on the top edge of something in alert. */
+/* Safety stripe: only on the top edge of something in alert. It survives a greyscale screen, which colour alone would not. */
 .hazard {
-  background-image: repeating-linear-gradient(135deg, #c81e1e 0 10px, #7f1212 10px 20px);
+  background-image: repeating-linear-gradient(135deg, #c81e1e 0 8px, #6e0f0f 8px 16px);
+}
+
+/* The one card state that must be seen from across a room: red outline on top of the stripe. */
+.card-alert {
+  border-color: var(--color-alert);
+  box-shadow: 0 0 0 1px var(--color-alert) inset;
+}
+.card-watch {
+  border-color: #e0a100;
 }
 
 /* Where a photo goes; also what shows when the photo is missing. */

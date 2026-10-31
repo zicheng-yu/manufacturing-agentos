@@ -38,7 +38,7 @@ export function ReferenceSource({ result }: { result: AgentResult }) {
 
 const GROUP_STYLE = {
   fact: { box: 'border-slate-200 bg-slate-50', label: 'text-brand-700' },
-  pending: { box: 'border-[#f5d27a] bg-[#fff8e6]', label: 'text-watch-ink' },
+  pending: { box: 'border-watch-line bg-watch-soft', label: 'text-watch-ink' },
   advice: { box: 'border-green-200 bg-green-50', label: 'text-green-900' },
 };
 

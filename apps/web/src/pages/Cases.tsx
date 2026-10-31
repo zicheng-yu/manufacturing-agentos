@@ -11,6 +11,13 @@ export const STATUS_STYLE: Record<CaseStatus, string> = {
   verified: 'bg-green-100 text-green-900',
 };
 
+const STATUS_HINT: Record<CaseStatus, string> = {
+  pending: '刚发起，还没有确认处置',
+  active: '处置执行中，回执只说明做过了',
+  verifying: '处置完成，等待验证是否真的有效',
+  verified: '有判据、有证据，才算解决',
+};
+
 export function StatusPill({ status }: { status: CaseStatus }) {
   return <span className={cx('inline-flex shrink-0 items-center rounded px-2 py-0.5 text-xs font-semibold', STATUS_STYLE[status])}>{CASE_STATUS_LABELS[status]}</span>;
 }
@@ -52,12 +59,23 @@ export function CaseList() {
   const { data, error } = useApi<CaseSummary[]>('/api/cases');
   return (
     <div className="mx-auto max-w-5xl space-y-5 p-4 md:p-6">
-      <div>
-        <h1 className="flex items-center gap-2 text-xl font-semibold text-slate-900">
-          <Handshake className="size-5 text-brand-600" />
-          协作事项
-        </h1>
-        <p className="text-sm text-slate-500">同一件业务事，多个岗位接力：证据持续更新，做过了与验证有效分开记录。从驾驶舱的信号或数据发现里点「发起协作」创建。</p>
+      <div className="space-y-3">
+        <div>
+          <h1 className="flex items-center gap-2 text-xl font-semibold text-slate-900">
+            <Handshake className="size-5 text-brand-600" />
+            协作事项
+          </h1>
+          <p className="mt-1 text-sm text-slate-500">同一件业务事，多个岗位接力：证据持续更新，做过了与验证有效分开记录。</p>
+        </div>
+        <ol className="grid gap-2 sm:grid-cols-4" aria-label="事项生命周期">
+          {CASE_STATUSES.map((s, i) => (
+            <li key={s} className={cx('rounded-lg border px-3 py-2 text-xs', STATUS_STYLE[s], 'border-transparent')}>
+              <span className="num mr-1.5 text-base font-bold">{String(i + 1).padStart(2, '0')}</span>
+              <span className="font-semibold">{CASE_STATUS_LABELS[s]}</span>
+              <span className="mt-0.5 block opacity-80">{STATUS_HINT[s]}</span>
+            </li>
+          ))}
+        </ol>
       </div>
       {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
       {!data && !error ? (
@@ -87,7 +105,11 @@ export function CaseList() {
               ))}
             </ul>
           ) : (
-            <Empty>还没有协作事项</Empty>
+            <div className="space-y-3 px-4 py-8 text-center">
+              <p className="text-sm font-medium text-slate-700">还没有协作事项</p>
+              <p className="mx-auto max-w-md text-sm text-slate-500">在驾驶舱点开一条信号，或在数据发现助手的卡片上点「发起协作」，就会在这里生成一个持久的事项。</p>
+              <Link to="/" className="inline-block rounded-lg border border-brand-300 bg-brand-50 px-3 py-1.5 text-sm font-medium text-brand-700 hover:bg-brand-100">去驾驶舱选一条信号</Link>
+            </div>
           )}
         </Card>
       )}

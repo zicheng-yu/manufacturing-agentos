@@ -34,7 +34,7 @@ export function useFlash(ms = 2600) {
 /** A metric set like a gauge reading: condensed figure, small unit. */
 function Reading({ value, unit, bad }: { value: string | number; unit?: string; bad: boolean }) {
   return (
-    <dd data-long={reading(value).length > 6} className={cx('metric-reading num flex min-w-0 flex-wrap items-baseline leading-none font-bold', bad ? 'text-red-700' : 'text-slate-900')}>
+    <dd data-long={reading(value).length > 6} className={cx('metric-reading num flex min-w-0 flex-wrap items-baseline leading-none font-bold', bad ? 'text-alert-ink' : 'text-slate-900')}>
       {reading(value)}
       {unit && <span className="ml-0.5 text-sm font-normal text-slate-500">{unit}</span>}
     </dd>
@@ -44,9 +44,14 @@ function Reading({ value, unit, bad }: { value: string | number; unit?: string; 
 export function SituationCard({ situation, flashing, signalCount, linkToModule = true }: { situation: Situation; flashing?: boolean; signalCount?: number; linkToModule?: boolean }) {
   const Icon = DOMAIN_ICONS[situation.domain];
   const alert = situation.level === 'alert';
-  const className = cx('situation-card flex min-w-0 w-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white text-left', linkToModule && 'group cursor-pointer transition hover:border-slate-300 hover:shadow-md focus-visible:outline-2 focus-visible:outline-brand-600', flashing && 'flash');
+  const className = cx(
+    'situation-card flex min-w-0 w-full flex-col overflow-hidden rounded-lg border bg-white text-left shadow-sm',
+    alert ? 'card-alert' : situation.level === 'watch' ? 'card-watch' : 'border-slate-200',
+    linkToModule && 'group cursor-pointer transition hover:shadow-md focus-visible:outline-2 focus-visible:outline-brand-600',
+    flashing && 'flash',
+  );
   const content = <>
-      {alert ? <div className="hazard h-1.5" /> : <div className={cx('h-1.5', situation.level === 'watch' ? 'bg-watch' : 'bg-slate-200')} />}
+      {alert ? <div className="hazard h-1.5" /> : <div className={cx('h-1.5', situation.level === 'watch' ? 'bg-watch-bar' : situation.level === 'normal' ? 'bg-ok' : 'bg-slate-300')} />}
       <div className="flex flex-1 flex-col gap-3.5 p-[18px]">
         <div className="flex items-center gap-2">
           <Icon className="size-4 text-slate-600" />
@@ -55,7 +60,7 @@ export function SituationCard({ situation, flashing, signalCount, linkToModule =
             <LevelPill level={situation.level} />
           </span>
         </div>
-        <p className={cx('line-clamp-2 min-h-[2lh] text-[17px] leading-snug font-bold', alert ? 'text-red-700' : 'text-slate-900')}>{situation.headline}</p>
+        <p className={cx('line-clamp-2 min-h-[2lh] text-[17px] leading-snug font-bold', alert ? 'text-alert-ink' : 'text-slate-900')}>{situation.headline}</p>
         <dl className="grid grid-cols-3 gap-2 border-t border-slate-100 pt-3">
           {situation.metrics.map((m) => (
             <div key={m.label} className="flex min-w-0 flex-col gap-1">
@@ -113,7 +118,7 @@ export function EventRow({
           <span title={formatTime(event.lastSeenAt)}>{timeAgo(event.lastSeenAt)}</span>
           {event.status === 'acknowledged' && <span>已确认</span>}
         </div>
-        {error && <p role="alert" className="mt-1 text-xs text-red-700">操作失败：{error}，请重试。</p>}
+        {error && <p role="alert" className="mt-1 text-xs text-alert-ink">操作失败：{error}，请重试。</p>}
       </div>
       {onStatus && event.status !== 'resolved' && (
         <div className="flex w-full shrink-0 items-start justify-end gap-1 sm:w-auto">
