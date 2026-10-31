@@ -25,6 +25,17 @@ const LOSS_ACTIONS: Record<string, string> = {
   计划保养: '把计划保养挪到低负荷班次，避开交期紧的工单',
 };
 
+/** Where the pack's hourly history stops and live readings begin, so a burst after a gap is not read as a trend. */
+function coverage(db: Parameters<typeof readings>[0], id: string): string | null {
+  const series = readings(db, id);
+  const at = (ts: string) => Date.parse(ts.replace(' ', 'T'));
+  for (let i = series.length - 1; i > 0; i--) {
+    const gapHours = (at(series[i].ts) - at(series[i - 1].ts)) / 3_600_000;
+    if (gapHours > 24) return `${id} 历史读数截至 ${series[i - 1].ts}，${series[i].ts} 起为现场实时上报，中间约 ${Math.round(gapHours / 24)} 天无读数`;
+  }
+  return null;
+}
+
 export const equipmentAgent: AgentDefinition = {
   id: 'production.equipment',
   module: 'production',
@@ -40,7 +51,9 @@ export const equipmentAgent: AgentDefinition = {
     const leads = health.flatMap((h) => h.precursors);
     const avgLead = leads.length ? Math.round(leads.reduce((s, l) => s + l.hoursAhead, 0) / leads.length) : null;
     const flagged = health.filter((h) => h.status !== '正常' || h.alarms.length);
+    const gaps = (focus ? [focus] : health).map((h) => coverage(db, h.equipment.id)).filter((g): g is string => g !== null);
     const blocks = [
+      ...(gaps.length ? [{ title: '数据范围', lines: gaps }] : []),
       {
         title: '设备健康（30 天小时级读数）',
         lines: health.map(
@@ -72,7 +85,7 @@ export const equipmentAgent: AgentDefinition = {
         ...(avgLead !== null ? [`${repairs.length} 次故障中有 ${leads.length} 次在发生前 ${PRECURSOR_HOURS} 小时内振动已多次进入关注区（≥${VIBRATION_WARN} mm/s），平均提前 ${avgLead} 小时`] : []),
         ...health.filter((h) => h.missing > 0).slice(0, 3).map((h) => `${h.equipment.id} 缺失 ${h.missing} 条读数`),
       ],
-      pending: ['前兆与故障的对应基于时间先后，需设备工程师结合维修报告确认因果'],
+      pending: ['前兆与故障的对应基于时间先后，需设备工程师结合维修报告确认因果', ...gaps.map((g) => `${g.split(' ')[0]} 的历史与实时读数之间有断档，趋势判断只看实时读数`)],
       suggestions: [
         `24 小时内 ≥${PRECURSOR_READINGS} 次读数进入关注区（≥${VIBRATION_WARN} mm/s）即派点检单，按历史可提前约 ${avgLead ?? '—'} 小时处置；≥${VIBRATION_ALARM} mm/s 立即停机检查`,
         '缺失读数较多的设备先检查传感器与采集网关',

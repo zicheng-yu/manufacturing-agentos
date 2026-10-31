@@ -15,9 +15,9 @@ const QUESTIONS = {
 } as const;
 const Decision = z.object({
   outcome: z.enum(['answered', 'clarify', 'handoff']),
-  evidence: z.array(z.object({ sourceId: z.string(), quote: z.string().trim().min(2).max(800) }).strict()).max(6),
+  evidence: z.array(z.object({ sourceId: z.string(), quote: z.string().trim().min(2).max(1200) }).strict()).max(6),
   clarification: z.enum(['leave_type', 'travel_city', 'employment_stage', 'tenure']).nullable(),
-  summary: z.string().trim().max(200).optional(),
+  summary: z.string().trim().max(400).optional(),
 }).strict().superRefine((v, ctx) => {
   if (v.outcome === 'answered' && v.evidence.length === 0) ctx.addIssue({ code: 'custom', message: 'Answer needs evidence' });
   if (v.outcome === 'clarify' && !v.clarification) ctx.addIssue({ code: 'custom', message: 'Clarification needs a question' });
