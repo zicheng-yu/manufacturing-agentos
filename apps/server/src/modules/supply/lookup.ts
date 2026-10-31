@@ -2,7 +2,7 @@ import { matchMaterial, type Material, type Supplier } from './data.ts';
 import { stripRequestTerms } from './request.ts';
 
 const CITIES = /^(?:昆山|无锡|东莞|合肥|常州|上海|宁波|苏州)/;
-const SUFFIXES = /(?:有限责任公司|有限公司|半导体|结构件|电子|柔电|电路|显示|科技|材料|箱业)$/;
+const SUFFIXES = /(?:有限责任公司|有限公司|半导体|结构件|电子|柔电|电路|显示|科技|材料|箱业|机械|精密)$/;
 
 function literalPattern(value: string): RegExp {
   const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -60,7 +60,7 @@ export function isSupplierQuestion(suppliers: Supplier[], input: string): boolea
 }
 
 export function materialCodes(text: string): string[] {
-  return [...new Set(text.toUpperCase().match(/\b(?!SUP-)[A-Z]{2,8}-\d[A-Z0-9-]*\b/g) ?? [])];
+  return [...new Set(text.toUpperCase().match(/\b(?!SUP-)[A-Z]{1,8}-\d[A-Z0-9-]*\b/g) ?? [])];
 }
 
 /** An inventory overview must not swallow an unrecognised material name. */

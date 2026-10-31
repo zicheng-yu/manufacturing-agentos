@@ -20,15 +20,17 @@ import { computeSituation, listSignals, rowToSignal, signalEvents } from './core
 import { openDb, migrate, type DB, type Row } from './db.ts';
 import { rankSignals } from './executive/briefing.ts';
 import { EXECUTIVE_AGENTS, MODULES } from './modules/index.ts';
-import { COMPANY } from './seed/company.ts';
+import { companyFor } from './seed/company.ts';
 
 export function createDeps(config: Config, overrides: Partial<Pick<Deps, 'db' | 'clock' | 'provider'>> = {}): Deps {
   const registry = new Registry(MODULES, EXECUTIVE_AGENTS);
   const db: DB = overrides.db ?? openDb(config.dbPath);
   migrate(db, registry.modules.map((m) => m.schema ?? ''));
+  for (const module of registry.modules) module.migrate?.(db);
   return {
     db,
     config,
+    company: companyFor(config.dataset),
     registry,
     bus: new Bus(),
     provider: overrides.provider ?? createProvider(config.llm),
@@ -51,8 +53,8 @@ async function body<T>(c: { req: { json(): Promise<unknown> } }, schema: z.ZodTy
   return parsed.data;
 }
 
-function sessionFor(account: Account): Session {
-  return { account, company: COMPANY, domains: domainsFor(account.role) };
+function sessionFor(deps: Deps, account: Account): Session {
+  return { account, company: deps.company, domains: domainsFor(account.role) };
 }
 
 /** Domains the account may see, optionally narrowed by a ?domain= filter. */
@@ -103,7 +105,7 @@ export function createApp(deps: Deps): Hono<AppEnv> {
       secure: new URL(c.req.url).protocol === 'https:',
       maxAge: deps.config.sessionHours * 3600,
     });
-    return c.json(sessionFor(result.account));
+    return c.json(sessionFor(deps, result.account));
   });
 
   app.post('/api/auth/logout', (c) => {
@@ -113,7 +115,7 @@ export function createApp(deps: Deps): Hono<AppEnv> {
     return c.json({ ok: true });
   });
 
-  app.get('/api/session', (c) => c.json(sessionFor(requireAccount(c))));
+  app.get('/api/session', (c) => c.json(sessionFor(deps, requireAccount(c))));
 
   app.get('/api/catalog', (c) => {
     const account = requireAccount(c);

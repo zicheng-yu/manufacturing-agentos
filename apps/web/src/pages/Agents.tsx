@@ -32,9 +32,9 @@ function TurnView({ turn, onDelete }: { turn: Turn; onDelete: () => void }) {
   return (
     <div className="space-y-3">
       <div className="flex justify-end">
-        <div className="max-w-[85%] rounded-2xl rounded-tr-sm bg-brand-600 px-4 py-2.5 text-sm whitespace-pre-wrap text-white">{turn.input}</div>
+        <div className="max-w-[85%] rounded-[14px] rounded-br-sm bg-brand-600 px-4 py-2.5 text-sm whitespace-pre-wrap text-white">{turn.input}</div>
       </div>
-      <article className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+      <article className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 md:p-[22px]">
         <div className="flex items-start justify-between gap-3">
           <h3 className="text-[15px] font-semibold text-slate-900">{turn.result.title}</h3>
           <div className="flex shrink-0 items-center gap-2 text-[11px] text-slate-400">
@@ -219,7 +219,7 @@ export function Agents() {
           {pending && (
             <div className="space-y-3">
               <div className="flex justify-end">
-                <div className="max-w-[85%] rounded-2xl rounded-tr-sm bg-brand-600 px-4 py-2.5 text-sm text-white">{pending}</div>
+                <div className="max-w-[85%] rounded-[14px] rounded-br-sm bg-brand-600 px-4 py-2.5 text-sm text-white">{pending}</div>
               </div>
               <Thinking />
             </div>
@@ -243,7 +243,7 @@ export function Agents() {
               placeholder={`向${agent.name}提问，Enter 发送，Shift+Enter 换行`}
               className="min-h-10 flex-1 resize-none bg-transparent px-2 py-1 text-sm outline-none"
             />
-            <button disabled={!draft.trim() || !!pending} className="rounded-lg bg-brand-600 p-2 text-white hover:bg-brand-700 disabled:opacity-40">
+            <button disabled={!draft.trim() || !!pending} aria-label="发送" className="flex size-11 items-center justify-center rounded-lg bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-40">
               <SendHorizontal className="size-4" />
             </button>
           </div>

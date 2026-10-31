@@ -1,10 +1,17 @@
 import type { Level } from '@agentos/shared';
-import type { DomainModule } from '../../core/module.ts';
+import type { AgentContext, AgentCtx, AgentDefinition, DomainModule, SeedCtx } from '../../core/module.ts';
+import { ensureColumns } from '../../db.ts';
 import { addDays, isoDate, round } from '../../core/util.ts';
 import { inventoryAgent, sourcingAgent } from './agents.ts';
 import { coverDays, listMaterials, listOrders, materialStatus, supplierName } from './data.ts';
 import { seedSupply, supplySeedEvents } from './seed.ts';
 import { riskEvents, riskTable, supplierRisks } from './risk.ts';
+import { DEMAND_SCHEMA, enrichInventory, enrichSourcing, OFFICIAL_COLUMNS, seedOfficialSupply, syncStockAlerts } from './official.ts';
+
+/** Add official-pack analysis on top of an agent's own answer. */
+function withOfficial(agent: AgentDefinition, enrich: (ctx: AgentCtx, result: AgentContext) => AgentContext): AgentDefinition {
+  return { ...agent, context: async (ctx) => enrich(ctx, await agent.context(ctx)) };
+}
 
 export const supplyModule: DomainModule = {
   id: 'supply',
@@ -28,19 +35,37 @@ export const supplyModule: DomainModule = {
       id TEXT PRIMARY KEY, material_code TEXT NOT NULL, supplier_id TEXT NOT NULL, unit_price REAL NOT NULL,
       tax_included INTEGER NOT NULL, moq INTEGER NOT NULL, lead_time_days INTEGER NOT NULL,
       payment_terms TEXT NOT NULL, quoted_at TEXT NOT NULL
-    );`,
-  seed: seedSupply,
-  seedEvents: supplySeedEvents,
-  agents: [sourcingAgent, inventoryAgent],
+    );
+    ${DEMAND_SCHEMA}`,
+  migrate(db) {
+    for (const [table, columns] of Object.entries(OFFICIAL_COLUMNS)) ensureColumns(db, table, columns);
+  },
+  seed(ctx: SeedCtx) {
+    if (ctx.dataset === 'official') seedOfficialSupply(ctx.db);
+    else seedSupply(ctx);
+  },
+  seedEvents: (now, dataset) => (dataset === 'official' ? [] : supplySeedEvents(now)),
+  beforeEvaluate: syncStockAlerts,
+  agents: [withOfficial(sourcingAgent, enrichSourcing), withOfficial(inventoryAgent, enrichInventory)],
 
   eventTypes: [
     { type: 'inbound_delay', label: '到货延迟', severity: 'warn', dedupeFields: ['orderId'] },
     { type: 'stockout_risk', label: '缺料风险', severity: 'critical', kind: 'state', dedupeFields: ['materialCode'] },
     { type: 'price_increase', label: '价格上涨', severity: 'info', kind: 'state', dedupeFields: ['materialCode'] },
     { type: 'supplier_risk', label: '供应商风险', severity: 'warn', kind: 'state', dedupeFields: ['supplierId'] },
+    { type: 'low_stock', label: '低于安全库存', severity: 'warn', kind: 'state' },
   ],
 
   signalRules: [
+    {
+      id: 'supply-low-stock',
+      types: ['low_stock'],
+      windowMinutes: 7 * 24 * 60,
+      threshold: 1,
+      severity: 'warn',
+      describe: (events) => ({ title: events.at(-1)!.title, summary: events.at(-1)!.summary }),
+      playbook: { decision: '批准低于安全库存物料的补货计划', impact: '多项物料库存不足安全线，存在齐套风险', owner: '供应链经理', dueHours: 72, weight: 1 },
+    },
     {
       id: 'supply-supplier-risk',
       types: ['supplier_risk'],
@@ -125,7 +150,7 @@ export const supplyModule: DomainModule = {
         : 'normal';
     const top = signals.find((s) => s.severity === 'critical') ?? signals[0];
     return {
-      title: '供应链在途风险',
+      title: '供应链与库存',
       level,
       headline: top ? top.title : low.length ? `${low.length} 项物料低于安全库存` : '库存与在途整体可控',
       metrics: [

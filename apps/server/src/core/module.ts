@@ -13,6 +13,7 @@ import type {
   TableArtifact,
 } from '@agentos/shared';
 import type { Hono } from 'hono';
+import type { Dataset } from '../config.ts';
 import type { DB } from '../db.ts';
 import type { AppEnv, Deps } from './deps.ts';
 import type { EventInput } from './events.ts';
@@ -27,9 +28,11 @@ export interface DomainModule {
   description: string;
   /** CREATE TABLE IF NOT EXISTS statements; table names must start with `<id>_`. */
   schema?: string;
-  seed?(ctx: ModuleCtx): void;
+  /** Add columns an existing database lacks (see ensureColumns). Runs after schema on every start. */
+  migrate?(db: DB): void;
+  seed?(ctx: SeedCtx): void;
   /** Historical events ingested after seeding, so the demo starts with some context. */
-  seedEvents?(now: Date): EventInput[];
+  seedEvents?(now: Date, dataset: Dataset): EventInput[];
   agents: AgentDefinition[];
   eventTypes: EventTypeDefinition[];
   signalRules: SignalRule[];
@@ -48,6 +51,11 @@ export interface DomainModule {
 export interface ModuleCtx {
   db: DB;
   now: Date;
+}
+
+/** Seeding also knows which dataset to load: the official material pack, or the fictional test fixtures. */
+export interface SeedCtx extends ModuleCtx {
+  dataset: Dataset;
 }
 
 export interface SituationDraft {

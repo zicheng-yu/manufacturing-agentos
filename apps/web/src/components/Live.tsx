@@ -30,43 +30,49 @@ export function useFlash(ms = 2600) {
   return { flashing: (key: string) => keys.has(key), flash };
 }
 
-const LEVEL_BORDER = { normal: 'border-t-emerald-500', watch: 'border-t-amber-500', alert: 'border-t-red-500' } as const;
+/** A metric set like a gauge reading: condensed figure, small unit. */
+function Reading({ value, unit, bad }: { value: string | number; unit?: string; bad: boolean }) {
+  return (
+    <dd className={cx('num leading-none font-bold whitespace-nowrap', String(value).length > 6 ? 'text-[22px]' : 'text-[30px]', bad ? 'text-red-700' : 'text-slate-900')}>
+      {value}
+      {unit && <span className="ml-0.5 text-sm font-normal text-slate-500">{unit}</span>}
+    </dd>
+  );
+}
 
 export function SituationCard({ situation, flashing, signalCount }: { situation: Situation; flashing?: boolean; signalCount?: number }) {
   const Icon = DOMAIN_ICONS[situation.domain];
+  const alert = situation.level === 'alert';
   return (
     <Link
       to={`/m/${situation.domain}`}
       className={cx(
-        'group flex flex-col rounded-xl border border-t-4 border-slate-200 bg-white p-4 shadow-sm transition hover:shadow-md',
-        LEVEL_BORDER[situation.level],
+        'group flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white transition hover:border-slate-300 hover:shadow-md',
         flashing && 'flash',
       )}
     >
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
-          <Icon className="size-4 text-slate-500" />
-          {situation.title}
+      {alert ? <div className="hazard h-1.5" /> : <div className={cx('h-1.5', situation.level === 'watch' ? 'bg-watch' : 'bg-slate-200')} />}
+      <div className="flex flex-1 flex-col gap-3.5 p-[18px]">
+        <div className="flex items-center gap-2">
+          <Icon className="size-4 text-slate-600" />
+          <span className="text-[15px] font-bold text-slate-900">{situation.title}</span>
+          <span className="ml-auto">
+            <LevelPill level={situation.level} />
+          </span>
         </div>
-        <LevelPill level={situation.level} />
-      </div>
-      <p className={cx('mt-3 min-h-10 text-[15px] leading-snug font-medium', situation.level === 'alert' ? 'text-red-700' : 'text-slate-800')}>
-        {situation.headline}
-      </p>
-      <dl className="mt-3 grid grid-cols-3 gap-2 border-t border-slate-100 pt-3">
-        {situation.metrics.map((m) => (
-          <div key={m.label} className="min-w-0">
-            <dt className="truncate text-[11px] text-slate-500">{m.label}</dt>
-            <dd className={cx('text-base font-semibold tabular-nums', m.tone === 'bad' ? 'text-red-600' : m.tone === 'good' ? 'text-slate-800' : 'text-slate-800')}>
-              {m.value}
-              {m.unit && <span className="ml-0.5 text-xs font-normal text-slate-400">{m.unit}</span>}
-            </dd>
-          </div>
-        ))}
-      </dl>
-      <div className="mt-3 flex items-center justify-between text-xs text-slate-400 group-hover:text-brand-600">
-        <span>{signalCount ? `${signalCount} 条活跃信号` : '无活跃信号'}</span>
-        <ChevronRight className="size-3.5" />
+        <p className={cx('min-h-12 text-[17px] leading-snug font-bold', alert ? 'text-red-700' : 'text-slate-900')}>{situation.headline}</p>
+        <dl className="grid grid-cols-3 gap-2 border-t border-slate-100 pt-3">
+          {situation.metrics.map((m) => (
+            <div key={m.label} className="flex min-w-0 flex-col gap-1">
+              <dt className="truncate text-xs text-slate-500" title={m.label}>{m.label}</dt>
+              <Reading value={m.value} unit={m.unit} bad={m.tone === 'bad'} />
+            </div>
+          ))}
+        </dl>
+        <div className="mt-auto flex items-center justify-between text-xs text-slate-600 group-hover:text-brand-600">
+          <span>{signalCount ? `${signalCount} 条活跃信号` : '无活跃信号'}</span>
+          <ChevronRight className="size-3.5" />
+        </div>
       </div>
     </Link>
   );
@@ -121,7 +127,7 @@ export function SignalList({ signals, flashing, onOpen }: { signals: Signal[]; f
     <ul className="divide-y divide-slate-100">
       {signals.map((s) => (
         <li key={s.id}>
-          <button onClick={() => onOpen(s.id)} className={cx('flex w-full gap-3 px-4 py-2.5 text-left hover:bg-slate-50', flashing?.(s.id) && 'slide-in bg-red-50/60')}>
+          <button onClick={() => onOpen(s.id)} className={cx('flex w-full gap-3 px-4 py-2.5 text-left hover:bg-slate-50', flashing?.(s.id) && 'slide-in bg-red-50')}>
             <SeverityBadge severity={s.severity} />
             <div className="min-w-0 flex-1">
               <div className="text-sm font-medium text-slate-800">{s.title}</div>

@@ -14,10 +14,10 @@ export function seedAll(deps: Deps): void {
   const now = deps.clock();
   transaction(deps.db, () => {
     for (const account of DEMO_ACCOUNTS) createAccount(deps.db, { ...account, password: deps.config.demoPassword }, now);
-    for (const module of deps.registry.modules) module.seed?.({ db: deps.db, now });
+    for (const module of deps.registry.modules) module.seed?.({ db: deps.db, now, dataset: deps.config.dataset });
   });
   for (const module of deps.registry.modules) {
-    for (const event of module.seedEvents?.(now) ?? []) ingestEvent(deps, event);
+    for (const event of module.seedEvents?.(now, deps.config.dataset) ?? []) ingestEvent(deps, event);
   }
   for (const module of deps.registry.modules) evaluateDomain(deps, module.id);
 }

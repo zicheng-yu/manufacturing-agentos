@@ -1,5 +1,6 @@
 import type { Level } from '@agentos/shared';
 import type { DomainModule } from '../../core/module.ts';
+import { aoiAgent, defectAgent, doeAgent, hasOfficialQuality, OFFICIAL_QUALITY_SCHEMA, officialSituation, officialTables, seedOfficialQuality, syncOfficialQuality } from './official.ts';
 import { capaAgent, complaintAgent } from './agents.ts';
 import { complaintTrend, isClosedComplaint, isOverdue, listCapa, listCases, listComplaints, similarCases } from './data.ts';
 import { qualitySeedEvents, seedQuality } from './seed.ts';
@@ -26,20 +27,49 @@ export const qualityModule: DomainModule = {
     CREATE TABLE IF NOT EXISTS quality_capa (
       id TEXT PRIMARY KEY, complaint_id TEXT NOT NULL, title TEXT NOT NULL, owner TEXT NOT NULL,
       due TEXT NOT NULL, status TEXT NOT NULL
-    );`,
-  seed: seedQuality,
-  seedEvents: qualitySeedEvents,
-  agents: [complaintAgent, capaAgent],
+    );
+    ${OFFICIAL_QUALITY_SCHEMA}`,
+  // The official pack has nonconformance, AOI and DOE data but no customer complaints, so the fictional complaint
+  // library is only loaded with the demo fixtures; complaints reported through the bridge still work.
+  seed(ctx) {
+    if (ctx.dataset === 'official') seedOfficialQuality(ctx.db);
+    else seedQuality(ctx);
+  },
+  seedEvents: (now, dataset) => (dataset === 'official' ? [] : qualitySeedEvents(now)),
+  agents: [defectAgent, aoiAgent, doeAgent, complaintAgent, capaAgent],
   routes: qualityRoutes,
-  beforeEvaluate: syncOverdueEvents,
+  beforeEvaluate(deps) {
+    syncOverdueEvents(deps);
+    syncOfficialQuality(deps);
+  },
 
   eventTypes: [
+    { type: 'fatal_without_8d', label: '致命不良未开 8D', severity: 'critical', kind: 'state' },
+    { type: 'aoi_escape', label: 'AOI 漏检偏高', severity: 'warn', kind: 'state' },
     { type: 'customer_complaint', label: '客户投诉', severity: 'warn', kind: 'state', dedupeFields: ['complaintId'] },
     { type: 'defect_recurrence', label: '同类异常复发', severity: 'critical', kind: 'state', dedupeFields: ['complaintId'] },
     { type: 'capa_overdue', label: '8D 整改逾期', severity: 'warn', kind: 'state', dedupeFields: ['capaId'] },
   ],
 
   signalRules: [
+    {
+      id: 'quality-fatal-8d',
+      types: ['fatal_without_8d'],
+      windowMinutes: 30 * 24 * 60,
+      threshold: 1,
+      severity: 'critical',
+      describe: (events) => ({ title: events.at(-1)!.title, summary: events.at(-1)!.summary }),
+      playbook: { decision: '责成致命不良全部立项 8D，并召开质委会评审', impact: '致命不良未闭环，存在批量流出与客户索赔风险', owner: '品质经理，总经理批准', dueHours: 48, weight: 3 },
+    },
+    {
+      id: 'quality-aoi-escape',
+      types: ['aoi_escape'],
+      windowMinutes: 30 * 24 * 60,
+      threshold: 1,
+      severity: 'warn',
+      describe: (events) => ({ title: events.at(-1)!.title, summary: events.at(-1)!.summary }),
+      playbook: { decision: '批准 AOI 低置信度 PASS 转人工复核，并补充样本重训', impact: '视觉模型漏检会让不良流出到下工序或客户', owner: '品质经理与 IT', dueHours: 72, weight: 2 },
+    },
     {
       id: 'quality-recurrence',
       types: ['defect_recurrence'],
@@ -98,6 +128,7 @@ export const qualityModule: DomainModule = {
   ],
 
   situation({ db, now, signals }) {
+    if (hasOfficialQuality(db)) return officialSituation(db, signals);
     const today = qualityDate(now);
     const open = listComplaints(db).filter((c) => !isClosedComplaint(c) && c.receivedAt <= today);
     const overdue = listCapa(db).filter((c) => isOverdue(c, today));
@@ -122,6 +153,19 @@ export const qualityModule: DomainModule = {
   },
 
   overview({ db, now }) {
+    if (hasOfficialQuality(db)) {
+      const ncs = db.prepare('SELECT COUNT(*) AS n FROM quality_nc').get() as { n: number };
+      const aoi = db.prepare('SELECT COUNT(*) AS n FROM quality_aoi').get() as { n: number };
+      return {
+        metrics: [
+          { label: '不良记录', value: Number(ncs.n), unit: '单' },
+          { label: 'AOI 检测', value: Number(aoi.n), unit: '次' },
+          { label: '客诉', value: listComplaints(db).length, unit: '起' },
+          { label: 'DOE 试验', value: Number((db.prepare('SELECT COUNT(*) AS n FROM quality_doe').get() as { n: number }).n), unit: '组' },
+        ],
+        tables: officialTables(db),
+      };
+    }
     const today = qualityDate(now);
     const complaints = listComplaints(db);
     const capa = listCapa(db);

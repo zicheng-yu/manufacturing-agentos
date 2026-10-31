@@ -16,6 +16,11 @@ export function addDays(date: Date, days: number): Date {
   return addMinutes(date, days * 24 * 60);
 }
 
+/** Wall-clock time in China (UTC+8) as "YYYY-MM-DD HH:MM", the format of the official pack's timestamps. */
+export function chinaStamp(date: Date): string {
+  return new Date(date.getTime() + 8 * 3600_000).toISOString().slice(0, 16).replace('T', ' ');
+}
+
 /** 2026-10-30 */
 export function isoDate(date: Date): string {
   return date.toISOString().slice(0, 10);

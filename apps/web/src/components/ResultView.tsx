@@ -4,15 +4,22 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { DataTable } from './DataTable.tsx';
 
-function Group({ title, items, icon: Icon, className }: { title: string; items: string[]; icon: typeof CheckCircle2; className: string }) {
+const GROUP_STYLE = {
+  fact: { box: 'border-slate-200 bg-slate-50', label: 'text-brand-700' },
+  pending: { box: 'border-[#f5d27a] bg-[#fff8e6]', label: 'text-watch-ink' },
+  advice: { box: 'border-green-200 bg-green-50', label: 'text-green-900' },
+};
+
+function Group({ title, en, items, icon: Icon, tone }: { title: string; en: string; items: string[]; icon: typeof CheckCircle2; tone: keyof typeof GROUP_STYLE }) {
   if (items.length === 0) return null;
+  const style = GROUP_STYLE[tone];
   return (
-    <div>
-      <div className={`mb-1 flex items-center gap-1 text-xs font-medium ${className}`}>
+    <div className={`rounded-[10px] border p-3.5 ${style.box}`}>
+      <div className={`mb-2 flex items-center gap-1.5 font-mono text-[11px] tracking-[0.12em] ${style.label}`}>
         <Icon className="size-3.5" />
-        {title}
+        {title} · {en}
       </div>
-      <ul className="space-y-1 text-[13px] text-slate-600">
+      <ul className="space-y-1.5 text-[13px] text-slate-800">
         {items.map((item) => (
           <li key={item} className="leading-relaxed">
             {item}
@@ -46,11 +53,11 @@ export function PolicySources({ result }: { result: AgentResult }) {
 export function Evidence({ result }: { result: AgentResult }) {
   if (!result.facts.length && !result.pending.length && !result.suggestions.length) return null;
   return (
-    <div className="@container rounded-lg bg-slate-50 p-3">
+    <div className="@container">
       <div className="grid gap-3 @2xl:grid-cols-3">
-      <Group title="事实" items={result.facts} icon={CheckCircle2} className="text-brand-600" />
-      <Group title="待核" items={result.pending} icon={CircleHelp} className="text-amber-700" />
-      <Group title="建议" items={result.suggestions} icon={Lightbulb} className="text-emerald-700" />
+        <Group title="事实" en="FACT" items={result.facts} icon={CheckCircle2} tone="fact" />
+        <Group title="待核" en="PENDING" items={result.pending} icon={CircleHelp} tone="pending" />
+        <Group title="建议" en="ADVICE" items={result.suggestions} icon={Lightbulb} tone="advice" />
       </div>
     </div>
   );
@@ -60,7 +67,7 @@ export function Actions({ result }: { result: AgentResult }) {
   if (result.actions.length === 0) return null;
   return (
     <div>
-      <div className="mb-1.5 flex items-center gap-1 text-xs font-medium text-slate-700">
+      <div className="mb-1.5 flex items-center gap-1 text-[13px] font-bold text-slate-900">
         <ListTodo className="size-3.5" />
         行动项（已写入待办）
       </div>
@@ -69,7 +76,7 @@ export function Actions({ result }: { result: AgentResult }) {
           <li key={a.title} className="flex flex-wrap items-baseline gap-x-3 px-3 py-2">
             <span className="flex-1 text-slate-700">{a.title}</span>
             {a.owner && <span className="text-xs text-slate-500">{a.owner}</span>}
-            {a.due && <span className="text-xs text-slate-400">{a.due}</span>}
+            {a.due && <span className="font-mono text-xs text-slate-500">{a.due}</span>}
           </li>
         ))}
       </ul>
@@ -82,8 +89,8 @@ export function Artifacts({ result, compact }: { result: AgentResult; compact?: 
   return (
     <div className="space-y-3">
       {result.artifacts.map((artifact) => (
-        <div key={artifact.title} className="overflow-hidden rounded-lg border border-slate-200">
-          <div className="border-b border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700">{artifact.title}</div>
+        <div key={artifact.title} className="overflow-hidden rounded-[10px] border border-slate-200">
+          <div className="bg-ink-900 px-3.5 py-2.5 font-mono text-xs tracking-[0.04em] text-white">{artifact.title}</div>
           <DataTable table={artifact} compact={compact} />
         </div>
       ))}

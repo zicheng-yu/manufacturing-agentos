@@ -6,6 +6,7 @@ import { daysOpen, listAttrition, listDepartments, listPositions } from './data.
 import { listRequests, recordServiceRequest, REQUEST_SCHEMA, ServicePayload } from './requests.ts';
 import { hrRoutes } from './routes.ts';
 import { hrSeedEvents, seedHr } from './seed.ts';
+import { replaceWithOfficialPolicies } from './official.ts';
 import { listRoleProfiles } from './talent.ts';
 import { activeKnowledge, KNOWLEDGE_SCHEMA } from './knowledge.ts';
 
@@ -33,7 +34,11 @@ export const hrModule: DomainModule = {
     );
     ${REQUEST_SCHEMA}
     ${KNOWLEDGE_SCHEMA}`,
-  seed: seedHr,
+  // The org chart and recruiting data stay as demo data (the pack has none); policies come from the official regulations.
+  seed(ctx) {
+    seedHr(ctx);
+    if (ctx.dataset === 'official') replaceWithOfficialPolicies(ctx.db);
+  },
   seedEvents: hrSeedEvents,
   agents: [serviceAgent, orgAgent, recruitmentAgent, trainingAgent],
   routes: hrRoutes,

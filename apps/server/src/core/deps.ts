@@ -1,4 +1,4 @@
-import type { Account, Domain, StreamMessage } from '@agentos/shared';
+import type { Account, Company, Domain, StreamMessage } from '@agentos/shared';
 import type { Config } from '../config.ts';
 import type { DB } from '../db.ts';
 import type { LlmProvider } from './agents/providers.ts';
@@ -7,6 +7,8 @@ import type { Registry } from './registry.ts';
 export interface Deps {
   db: DB;
   config: Config;
+  /** The factory the data describes; follows the dataset. */
+  company: Company;
   registry: Registry;
   bus: Bus;
   provider: LlmProvider;

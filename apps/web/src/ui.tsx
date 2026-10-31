@@ -1,12 +1,14 @@
 import { DOMAIN_LABELS, type Domain, type Level, type Severity } from '@agentos/shared';
-import { Boxes, Briefcase, ShieldCheck, Truck, Users, type LucideIcon } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { Boxes, Briefcase, Factory, HardHat, ShieldCheck, Truck, Users, type LucideIcon } from 'lucide-react';
+import { useState, type ReactNode } from 'react';
 
 export const DOMAIN_ICONS: Record<Domain | 'executive', LucideIcon> = {
+  production: Factory,
   supply: Truck,
   quality: ShieldCheck,
   logistics: Boxes,
   hr: Users,
+  ehs: HardHat,
   executive: Briefcase,
 };
 
@@ -20,10 +22,10 @@ export function cx(...classes: (string | false | null | undefined)[]): string {
 
 export function Card({ children, className, title, action }: { children: ReactNode; className?: string; title?: ReactNode; action?: ReactNode }) {
   return (
-    <section className={cx('rounded-xl border border-slate-200 bg-white shadow-sm', className)}>
+    <section className={cx('rounded-[10px] border border-slate-200 bg-white', className)}>
       {title && (
         <header className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
-          <h2 className="text-sm font-semibold text-slate-800">{title}</h2>
+          <h2 className="text-sm font-bold text-slate-900">{title}</h2>
           {action}
         </header>
       )}
@@ -32,31 +34,60 @@ export function Card({ children, className, title, action }: { children: ReactNo
   );
 }
 
-const LEVEL_STYLE: Record<Level, { label: string; className: string; dot: string }> = {
-  normal: { label: '正常', className: 'bg-emerald-50 text-emerald-700 ring-emerald-200', dot: 'bg-emerald-500' },
-  watch: { label: '关注', className: 'bg-amber-50 text-amber-700 ring-amber-200', dot: 'bg-amber-500' },
-  alert: { label: '告警', className: 'bg-red-50 text-red-700 ring-red-200', dot: 'bg-red-500' },
+/** Numbered section rule: "01 全局态势 SITUATION ———". */
+export function Section({ no, title, en, action, children, className }: { no: string; title: string; en: string; action?: ReactNode; children: ReactNode; className?: string }) {
+  return (
+    <section className={cx('space-y-3.5', className)}>
+      <div className="flex items-center gap-3">
+        <span className="num text-[22px] leading-none font-bold text-brand-600">{no}</span>
+        <h2 className="text-lg font-bold text-slate-900">{title}</h2>
+        <span className="hidden font-mono text-[11px] tracking-[0.14em] text-slate-500 sm:inline">{en}</span>
+        <span className="h-px flex-1 bg-slate-300" />
+        {action}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+/** A site photo over the striped placeholder, which stays visible when the photo is missing. */
+export function Photo({ src, alt, className, children }: { src: string; alt: string; className?: string; children?: ReactNode }) {
+  const [failed, setFailed] = useState(false);
+  return (
+    <div className={cx('photo-slot relative overflow-hidden', className)}>
+      {!failed && <img src={src} alt={alt} onError={() => setFailed(true)} className="absolute inset-0 size-full object-cover" />}
+      {children}
+    </div>
+  );
+}
+
+// Alert and watch differ in lightness too (dark red with white text, pale amber with dark text), not only in hue.
+const LEVEL_STYLE: Record<Level, { label: string; className: string }> = {
+  normal: { label: '正常', className: 'bg-green-100 text-green-900' },
+  watch: { label: '关注', className: 'bg-watch text-watch-ink' },
+  alert: { label: '告警', className: 'bg-alert text-white' },
 };
 
 export function LevelPill({ level }: { level: Level }) {
   const s = LEVEL_STYLE[level];
-  return (
-    <span className={cx('inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ring-1', s.className)}>
-      <span className={cx('size-1.5 rounded-full', s.dot, level === 'alert' && 'animate-pulse')} />
-      {s.label}
-    </span>
-  );
+  return <span className={cx('inline-flex shrink-0 items-center rounded px-2 py-0.5 text-xs font-semibold', s.className)}>{s.label}</span>;
+}
+
+/** Running / backlog / alert lamp. */
+export function Lamp({ level, className }: { level: Level; className?: string }) {
+  const color = { normal: 'bg-green-600 ring-green-600/20', watch: 'bg-amber-600 ring-amber-600/20', alert: 'bg-red-600 ring-red-600/20' }[level];
+  return <span className={cx('inline-block size-2 shrink-0 rounded-full ring-[3px]', color, level === 'alert' && 'animate-pulse', className)} />;
 }
 
 const SEVERITY_STYLE: Record<Severity, { label: string; className: string }> = {
   info: { label: '提示', className: 'bg-slate-100 text-slate-600' },
-  warn: { label: '警告', className: 'bg-amber-100 text-amber-800' },
-  critical: { label: '严重', className: 'bg-red-100 text-red-700' },
+  warn: { label: '警告', className: 'bg-watch text-watch-ink' },
+  critical: { label: '严重', className: 'bg-alert text-white' },
 };
 
 export function SeverityBadge({ severity }: { severity: Severity }) {
   const s = SEVERITY_STYLE[severity];
-  return <span className={cx('shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium', s.className)}>{s.label}</span>;
+  return <span className={cx('shrink-0 self-start rounded px-1.5 py-0.5 text-[11px] font-semibold', s.className)}>{s.label}</span>;
 }
 
 export function DomainTag({ domain }: { domain: Domain | 'executive' }) {

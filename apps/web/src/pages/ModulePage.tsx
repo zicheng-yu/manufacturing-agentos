@@ -6,7 +6,7 @@ import { useApi } from '../api.ts';
 import { DataTable } from '../components/DataTable.tsx';
 import { EventRow, SignalDrawer, SignalList, SituationCard, useFlash } from '../components/Live.tsx';
 import { useLive, useSession } from '../session.tsx';
-import { Card, DOMAIN_ICONS, Empty, Spinner } from '../ui.tsx';
+import { Card, DOMAIN_ICONS, Empty, Photo, Section, Spinner } from '../ui.tsx';
 const HrWorkbench = lazy(() => import('./hr/HrWorkbench.tsx').then((m) => ({ default: m.HrWorkbench })));
 
 export function ModulePage() {
@@ -43,66 +43,75 @@ export function ModulePage() {
   const agents = catalog?.agents.filter((a) => a.module === domain) ?? [];
 
   return (
-    <div className="mx-auto max-w-[1440px] space-y-5 p-4 md:p-6">
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="flex size-10 items-center justify-center rounded-xl bg-brand-600 text-white">
-          <Icon className="size-5" />
+    <div className="mx-auto max-w-[1360px] space-y-7 px-4 pt-5 pb-10 md:px-7 md:pt-6">
+      <Photo src={`/photos/${domain}.jpg`} alt={`${module.name}现场`} className="rounded-[14px] text-white">
+        <div className="relative flex flex-wrap items-end gap-4 bg-gradient-to-r from-ink-900/90 via-ink-900/75 to-ink-900/40 px-6 py-7 md:px-8">
+          <div className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-brand-600">
+            <Icon className="size-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <span className="font-mono text-[11px] tracking-[0.14em] text-sky-300">MODULE · {domain.toUpperCase()}</span>
+            <h1 className="mt-1 text-[26px] leading-tight font-bold">{module.name}</h1>
+            <p className="mt-1 max-w-2xl text-sm text-slate-300">{module.description}</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {agents.map((a) => (
+              <Link key={a.id} to={a.companyService ? '/employee-service' : '/agents/' + a.id} className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-white/30 bg-ink-900/40 px-3.5 text-sm hover:bg-white/15">
+                <Bot className="size-4" />
+                {a.name}
+              </Link>
+            ))}
+          </div>
         </div>
-        <div className="min-w-0 flex-1">
-          <h1 className="text-xl font-semibold text-slate-900">{module.name}</h1>
-          <p className="text-sm text-slate-500">{module.description}</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {agents.map((a) => (
-            <Link key={a.id} to={a.companyService ? '/employee-service' : '/agents/' + a.id} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 hover:border-brand-300 hover:text-brand-700">
-              <Bot className="size-4" />
-              {a.name}
-            </Link>
-          ))}
-        </div>
-      </div>
+      </Photo>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <SituationCard situation={situation} flashing={flashing(domain)} signalCount={signals.data?.length} />
-        <div className="grid grid-cols-2 gap-3 lg:col-span-2 lg:grid-cols-4">
-          {metrics.map((m) => (
-            <div key={m.label} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="text-xs text-slate-500">{m.label}</div>
-              <div className="mt-1 text-2xl font-semibold text-slate-900 tabular-nums">
-                {m.value}
-                {m.unit && <span className="ml-1 text-sm font-normal text-slate-400">{m.unit}</span>}
+      <Section no="01" title="态势与指标" en="SITUATION">
+        <div className="grid gap-4 lg:grid-cols-3">
+          <SituationCard situation={situation} flashing={flashing(domain)} signalCount={signals.data?.length} />
+          <dl className="grid grid-cols-2 gap-3 lg:col-span-2 lg:grid-cols-4">
+            {metrics.map((m) => (
+              <div key={m.label} className="flex flex-col justify-between gap-2 rounded-[10px] border border-slate-200 bg-white p-4">
+                <dt className="text-xs text-slate-500">{m.label}</dt>
+                <dd className="num text-[34px] leading-none font-bold text-slate-900">
+                  {m.value}
+                  {m.unit && <span className="ml-1 text-sm font-normal text-slate-500">{m.unit}</span>}
+                </dd>
               </div>
-            </div>
-          ))}
+            ))}
+          </dl>
         </div>
-      </div>
+      </Section>
 
       {domain === 'hr' ? <Suspense fallback={<Spinner />}><HrWorkbench onChanged={() => { void overview.reload(); void events.reload(); void signals.reload(); }} /></Suspense> : null}
 
-      <div className="grid gap-5 xl:grid-cols-3">
-        <div className="space-y-5 xl:col-span-2">
-          {tables.filter((t) => domain !== 'hr' || t.title !== '员工服务请求').map((t) => (
-            <Card key={t.title} title={t.title}>
-              <DataTable table={t} />
+      <div className="grid gap-7 xl:grid-cols-3 xl:gap-5">
+        <Section no="02" title="业务数据" en="RECORDS" className="xl:col-span-2">
+          <div className="space-y-5">
+            {tables.filter((t) => domain !== 'hr' || t.title !== '员工服务请求').map((t) => (
+              <Card key={t.title} title={t.title}>
+                <DataTable table={t} />
+              </Card>
+            ))}
+          </div>
+        </Section>
+        <Section no="03" title="信号与事件" en="SIGNALS">
+          <div className="space-y-5">
+            <Card title="活跃信号">
+              <SignalList signals={signals.data ?? []} flashing={flashing} onOpen={setSignalId} />
             </Card>
-          ))}
-        </div>
-        <div className="space-y-5">
-          <Card title="活跃信号">
-            <SignalList signals={signals.data ?? []} flashing={flashing} onOpen={setSignalId} />
-          </Card>
-          <Card title="最近事件">
-            {events.data?.length ? (
-              <ul className="max-h-[640px] divide-y divide-slate-100 overflow-y-auto">
-                {events.data.map((e) => (
-                  <EventRow key={e.id} event={e} flashing={flashing(e.id)} />
-                ))}
-              </ul>
-            ) : (
-              <Empty>暂无事件</Empty>
-            )}
-          </Card>
-        </div>
+            <Card title="最近事件">
+              {events.data?.length ? (
+                <ul className="max-h-[640px] divide-y divide-slate-100 overflow-y-auto">
+                  {events.data.map((e) => (
+                    <EventRow key={e.id} event={e} flashing={flashing(e.id)} />
+                  ))}
+                </ul>
+              ) : (
+                <Empty>暂无事件</Empty>
+              )}
+            </Card>
+          </div>
+        </Section>
       </div>
       <SignalDrawer signalId={signalId} onClose={() => setSignalId(null)} />
     </div>
