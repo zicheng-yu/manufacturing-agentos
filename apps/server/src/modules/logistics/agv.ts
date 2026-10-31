@@ -2,7 +2,7 @@
 import type { Deps } from '../../core/deps.ts';
 import type { AgentDefinition } from '../../core/module.ts';
 import { syncStateAlerts } from '../../core/state-alerts.ts';
-import { percent, round } from '../../core/util.ts';
+import { addDays, isoDate, percent, round } from '../../core/util.ts';
 import type { DB, Row } from '../../db.ts';
 import { cite, num, officialTable } from '../../seed/official.ts';
 
@@ -88,7 +88,7 @@ export const agvAgent: AgentDefinition = {
   description: '分析 AGV 任务的按时率、超时车辆与线路、等待热点和调度数据异常',
   instructions: `你负责 AGV 调度。${cite('SLM-2025-001-2.6')}只规定「AGV 任务自动执行率 ≥95%」，没有单列按时率，按时率的 95% 是参照这一 KPI 的内部目标，正文要这样说明；拥堵与死锁处理按${cite('SLM-2025-001-5.2')}，这是制度已有要求，要写成「核查是否落实」而不是新措施；起点与终点相同的任务是数据异常，不计入按时率。原因判断要先比较车辆之间的指标，没有数据支持的原因写成待核。`,
   starters: ['哪台 AGV 超时最多？', 'AGV 按时率达标了吗', '哪条线路最堵'],
-  context({ db }) {
+  context({ db, now }) {
     const a = agvSummary(db);
     if (a.tasks === 0) return { headline: '暂无 AGV 任务数据', blocks: [] };
     const worst = a.byAgv[0];
@@ -106,6 +106,11 @@ export const agvAgent: AgentDefinition = {
       facts: [`${a.window} 共 ${a.tasks} 单，有效 ${a.valid} 单，按时率 ${percent(a.onTime, 1)}`, `${worst.key} 超时 ${worst.timeouts}/${worst.tasks} 单`, `${a.invalid.length} 单起点与终点相同，属数据异常`],
       pending: ['起终点相同的任务需核对 RCS 地图与任务下发记录', ...(waitNotCause ? [`${worst.key} 超时原因（线路分配、导航或电池）数据中没有，需现场排查`] : [])],
       suggestions: [`排查 ${worst.key} 所跑线路与车辆状态（导航、电池档案），必要时下线保养`, `对超时单数最多的线路「${a.byRoute[0]?.key ?? '—'}」做路径与让行规则优化`, `目标：超时从 ${a.timeouts} 单降到 ${allowed} 单以内`],
+      actions: [
+        { title: `排查 ${worst.key} 所跑线路与车辆状态（导航、电池档案），给出是否下线保养的结论`, owner: '物流主管，设备工程师配合', due: isoDate(addDays(now, 1)) },
+        ...(a.byRoute[0] ? [{ title: `优化线路「${a.byRoute[0].key}」的路径与让行规则`, owner: '调度工程师', due: isoDate(addDays(now, 3)) }] : []),
+        ...(a.invalid.length ? [{ title: `核对 ${a.invalid.length} 单起终点相同的任务下发记录与 RCS 地图`, owner: '调度工程师', due: isoDate(addDays(now, 2)) }] : []),
+      ],
       artifacts: [
         { kind: 'table', title: 'AGV 车辆表现', columns: ['车辆', '有效任务', '超时', '超时率', '平均等待(秒)'], rows: a.byAgv.map((g) => [g.key, g.tasks, g.timeouts, percent(g.rate, 1), g.wait]) },
         { kind: 'table', title: '线路超时（按超时单数）', columns: ['线路', '任务', '超时', '超时率', '平均等待(秒)'], rows: a.byRoute.map((g) => [g.key, g.tasks, g.timeouts, percent(g.rate, 1), g.wait]) },
