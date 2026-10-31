@@ -17,6 +17,7 @@ export function ModulePage() {
   const events = useApi<AgentOSEvent[]>(`/api/events?domain=${domain}&limit=30`);
   const { flashing, flash } = useFlash();
   const [signalId, setSignalId] = useState<string | null>(null);
+  useEffect(() => { setSignalId(null); }, [domain]);
   const timer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(timer.current), []);
 
@@ -67,7 +68,7 @@ export function ModulePage() {
 
       <Section no="01" title="态势与指标" en="SITUATION">
         <div className="grid gap-4 lg:grid-cols-3">
-          <SituationCard situation={situation} flashing={flashing(domain)} signalCount={signals.data?.length} />
+          <SituationCard situation={situation} flashing={flashing(domain)} signalCount={signals.data?.length} linkToModule={false} />
           <dl className="grid content-start grid-cols-2 gap-3 lg:col-span-2 lg:grid-cols-4">
             {metrics.map((m) => (
               <div key={m.label} className="flex min-h-28 flex-col justify-between gap-2 rounded-[10px] border border-slate-200 bg-white p-4">

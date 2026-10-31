@@ -8,6 +8,28 @@ import { STORYLINE, stepBody } from '../src/seed/storyline.ts';
 import { setup } from './helpers.ts';
 
 describe('accounts and permissions', () => {
+  it('sorts events by urgency before limiting, while preserving time order, status and module filters', async () => {
+    const env = setup();
+    try {
+      const create = (severity: 'critical' | 'warn' | 'info') => ingestEvent(env.deps, { domain: 'logistics', type: 'grasp_failed', severity, dedupeKey: `sort-${severity}`, source: { channel: 'manual' } }).event;
+      const urgent = create('critical');
+      env.advance(1);
+      const warning = create('warn');
+      env.advance(1);
+      const newest = create('info');
+      const cookie = await env.login('logistics');
+      const base = '/api/events?domain=logistics&status=unresolved&limit=1';
+      expect((await env.get(base, cookie)).body[0].id).toBe(newest.id);
+      expect((await env.get(`${base}&sort=severity`, cookie)).body[0].id).toBe(urgent.id);
+      await env.send('PATCH', `/api/events/${urgent.id}`, { status: 'resolved' }, { Cookie: cookie });
+      expect((await env.get(`${base}&sort=severity`, cookie)).body[0].id).toBe(warning.id);
+      const all = (await env.get('/api/events?domain=logistics&sort=severity', cookie)).body;
+      expect(all.at(-1).id).toBe(urgent.id);
+      expect(all.at(-1).status).toBe('resolved');
+      expect((await env.get('/api/events?domain=logistics&sort=severity', await env.login('quality'))).body).toEqual([]);
+    } finally { env.deps.db.close(); }
+  });
+
   it('rejects a wrong password and accepts the demo password', async () => {
     const env = setup();
     const bad = await env.send('POST', '/api/auth/login', { username: 'chairman', password: 'nope' });
@@ -101,6 +123,9 @@ describe('event bridge', () => {
     const cookie = await env.login('logistics');
     const res = await env.bridge('/api/bridge/events', { type: 'grasp_failed', station: '码垛-01', count: 3 });
     expect(listSignals(env.deps, ['logistics'])).toHaveLength(1);
+    // A module with only informational signals must not be promoted to a warning in the cockpit.
+    env.deps.db.prepare("UPDATE signals SET severity = 'info' WHERE domain = 'logistics'").run();
+    expect((await env.get('/api/modules/logistics/overview', cookie)).body.situation.level).toBe('info');
     const patched = await env.send('PATCH', `/api/events/${res.body.events[0].id}`, { status: 'resolved' }, { Cookie: cookie });
     expect(patched.status).toBe(200);
     expect(listSignals(env.deps, ['logistics'])).toHaveLength(0);

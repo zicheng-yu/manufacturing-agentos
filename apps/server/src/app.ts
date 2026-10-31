@@ -194,6 +194,7 @@ export function createApp(deps: Deps): Hono<AppEnv> {
       domains: visibleDomains(account, c.req.query('domain')),
       status,
       limit: Number(c.req.query('limit') ?? 100),
+      sort: c.req.query('sort') === 'severity' ? 'severity' : 'recent',
     });
     return c.json(events.map((e) => redactEvent(deps, e, account.role)));
   });
@@ -203,7 +204,18 @@ export function createApp(deps: Deps): Hono<AppEnv> {
     const event = getEvent(deps, c.req.param('id'));
     if (!event || !canSee(account.role, event.domain)) throw new HTTPException(404, { message: '事件不存在' });
     const { status } = await body(c, EventStatusBody);
-    return c.json(redactEvent(deps, setEventStatus(deps, event.id, status), account.role));
+    const updated = setEventStatus(deps, event.id, status);
+    // A rule can immediately raise a new event if the underlying business condition still holds.
+    const replacement = status === 'resolved' ? deps.db.prepare(`SELECT id FROM events WHERE domain = ? AND type = ? AND dedupe_key = (SELECT dedupe_key FROM events WHERE id = ?) AND id <> ? AND status != 'resolved' ORDER BY last_seen_at DESC LIMIT 1`).get(event.domain, event.type, event.id, event.id) as Row | undefined : undefined;
+    let activeEvent = replacement ? getEvent(deps, String(replacement.id)) : null;
+    if (activeEvent) {
+      // This belongs to the event, not to the client's last clicked row. Preserve it across reloads and later actions.
+      deps.db.prepare('UPDATE events SET payload_json = ? WHERE id = ?')
+        .run(JSON.stringify({ ...activeEvent.payload, reopenedFromEventId: event.id }), activeEvent.id);
+      activeEvent = getEvent(deps, activeEvent.id)!;
+      deps.bus.publish({ kind: 'event.updated', event: activeEvent });
+    }
+    return c.json({ ...redactEvent(deps, updated, account.role), ...(activeEvent ? { activeEvent: redactEvent(deps, activeEvent, account.role) } : {}) });
   });
 
   app.get('/api/signals', (c) => {

@@ -228,7 +228,7 @@ export function Cockpit() {
                 {alerting.length}
                 <span className="text-[32px] text-brand-100"> / {data.situations.length}</span>
               </span>
-              <span className="text-sm">模块告警</span>
+              <span className="text-sm">严重风险模块</span>
             </div>
             <div className="grid grid-cols-2 gap-2">
               {data.situations.map((x) => (
@@ -284,7 +284,7 @@ export function Cockpit() {
             {data.events.length ? (
               <ul className="max-h-[520px] divide-y divide-slate-100 overflow-y-auto">
                 {data.events.map((e) => (
-                  <EventRow key={e.id} event={e} flashing={flashing(e.id)} onStatus={(ev, st) => void setEventStatus(ev, st)} />
+                  <EventRow key={e.id} event={e} flashing={flashing(e.id)} onStatus={setEventStatus} />
                 ))}
               </ul>
             ) : (

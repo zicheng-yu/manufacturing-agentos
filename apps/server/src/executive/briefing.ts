@@ -1,13 +1,10 @@
-import { DOMAIN_LABELS, type Domain, type Signal } from '@agentos/shared';
+import { DOMAIN_LABELS, LEVEL_LABELS as LEVEL_LABEL, SEVERITY_LABELS as SEVERITY_LABEL, type Domain, type Signal } from '@agentos/shared';
 import type { Deps } from '../core/deps.ts';
 import { severityRank } from '../core/events.ts';
 import type { AgentDefinition, SignalRule } from '../core/module.ts';
 import { domainsFor } from '../core/roles.ts';
 import { computeSituation, listSignals, signalEvents } from '../core/signals.ts';
 import { addMinutes, isoDate } from '../core/util.ts';
-
-const LEVEL_LABEL = { normal: '正常', watch: '关注', alert: '告警' } as const;
-const SEVERITY_LABEL = { info: '提示', warn: '警告', critical: '严重' } as const;
 
 /** HR departments that correspond to another module, so attrition can be linked to that module's risks. */
 const DEPARTMENT_DOMAIN: Record<string, Domain> = { 供应链部: 'supply', 品质部: 'quality', 智能物流部: 'logistics' };
@@ -159,9 +156,9 @@ export const briefingAgent: AgentDefinition = {
 
     const alerts = situations.filter((s) => s.level === 'alert').map((s) => s.title);
     const headline = alerts.length
-      ? `${alerts.join('、')}处于告警，今天有 ${decisions.length} 件事需要决定`
+      ? `${alerts.join('、')}存在严重风险，今天有 ${decisions.length} 件事需要决定`
       : signals.length
-        ? `整体可控，有 ${signals.length} 条信号需要关注`
+        ? `有 ${signals.length} 条警告或提示级信号需要处理`
         : '各模块运行正常，今天没有必须决定的事项';
 
     return {
