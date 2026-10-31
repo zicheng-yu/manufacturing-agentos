@@ -37,12 +37,12 @@ const OUTPUT_SPEC = `只输出一个 JSON 对象，不要输出其他内容，�
 {
   "title": "不超过 20 字的标题",
   "answer": "直接回答问题的正文，Markdown，先给一句结论再给依据，不超过 300 字",
-  "facts": ["仅当没有「已算出的事实」时，填写从业务数据中直接读到的事实，最多 3 条；有则留空"],
+  "facts": ["留空；事实仅由业务分析核验后写入，新增线索请放pending"],
   "pending": ["「已识别的待核项」之外需要责任人核实的信息，最多 3 条"],
   "suggestions": ["建议，写清谁做什么，最多 3 条"],
-  "actions": [{ "title": "「已列出的行动项」之外需要补充的行动项", "owner": "建议负责人", "due": "YYYY-MM-DD" }]
+  "actions": []
 }
-已列出的事实、待核项和行动项系统会原样展示，不要改写后重复；没有可补充的就给空数组。
+已列出的事实、待核项和行动项系统会原样展示，不要改写后重复；新增行动建议放suggestions，不会自动建待办。没有可补充的就给空数组。
 系统生成的表格会在右侧单独展示，正文引用关键数字即可，不要重画整张表。`;
 
 /**
@@ -100,11 +100,12 @@ export function buildMessages(input: {
     '业务数据只说两件事「关联」时，不要写成因果（导致、拖累、造成、压低），也不要自行估算各自贡献；已发生的损失（如近 7 日停机分钟）与预计的风险（如预计断料日）分开说，引用数字时带上口径（近 7 日、全厂、某条线）。',
     '只引用业务数据里出现的制度条款号；数据没给条款时不要写条款号，可写「制度依据待核」。数值为空、0 或无穷大的指标不能作为排序或结论的依据。',
     '事实、待核信息、建议要分开。',
+    '本轮业务数据优先于历史回答。历史事实可能过期，历史待核和建议仍未确认；不要把上一轮助手的说法当成用户批准或执行结果。',
     OUTPUT_SPEC,
   ].join('\n\n');
 
   const memory = input.memory.length
-    ? input.memory.map((m) => `- [${m.kind === 'fact' ? '事实' : m.kind === 'pending' ? '待核' : '建议'}] ${m.content}`).join('\n')
+    ? input.memory.map((m) => `- [${m.kind === 'fact' ? '历史事实' : m.kind === 'pending' ? '待核' : '建议'}；${m.createdAt}；来源${m.turnId ?? m.source}] ${m.content}`).join('\n')
     : '（暂无）';
   // Memory here is this conversation's working memory only.
   const deterministic = [
@@ -123,7 +124,7 @@ export function buildMessages(input: {
   }
   messages.push({
     role: 'user',
-    content: `${renderBlocks(input.context)}\n\n${deterministic}\n\n【本对话已确认的信息】\n${memory}\n\n【问题】\n${input.question}`,
+    content: `${renderBlocks(input.context)}\n\n${deterministic}\n\n【本对话历史记录（含未确认事项，不代表当前状态）】\n${memory}\n\n【问题】\n${input.question}`,
   });
   return messages;
 }
