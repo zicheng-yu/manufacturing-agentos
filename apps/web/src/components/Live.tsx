@@ -33,7 +33,7 @@ export function useFlash(ms = 2600) {
 /** A metric set like a gauge reading: condensed figure, small unit. */
 function Reading({ value, unit, bad }: { value: string | number; unit?: string; bad: boolean }) {
   return (
-    <dd className={cx('num leading-none font-bold whitespace-nowrap', reading(value).length > 6 ? 'text-[22px]' : 'text-[30px]', bad ? 'text-red-700' : 'text-slate-900')}>
+    <dd data-long={reading(value).length > 6} className={cx('metric-reading num flex min-w-0 flex-wrap items-baseline leading-none font-bold', bad ? 'text-red-700' : 'text-slate-900')}>
       {reading(value)}
       {unit && <span className="ml-0.5 text-sm font-normal text-slate-500">{unit}</span>}
     </dd>
@@ -43,18 +43,18 @@ function Reading({ value, unit, bad }: { value: string | number; unit?: string; 
 export function SituationCard({ situation, flashing, signalCount, linkToModule = true }: { situation: Situation; flashing?: boolean; signalCount?: number; linkToModule?: boolean }) {
   const Icon = DOMAIN_ICONS[situation.domain];
   const alert = situation.level === 'alert';
-  const className = cx('flex w-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white text-left', linkToModule && 'group cursor-pointer transition hover:border-slate-300 hover:shadow-md focus-visible:outline-2 focus-visible:outline-brand-600', flashing && 'flash');
+  const className = cx('situation-card flex min-w-0 w-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white text-left', linkToModule && 'group cursor-pointer transition hover:border-slate-300 hover:shadow-md focus-visible:outline-2 focus-visible:outline-brand-600', flashing && 'flash');
   const content = <>
       {alert ? <div className="hazard h-1.5" /> : <div className={cx('h-1.5', situation.level === 'watch' ? 'bg-watch' : 'bg-slate-200')} />}
       <div className="flex flex-1 flex-col gap-3.5 p-[18px]">
         <div className="flex items-center gap-2">
           <Icon className="size-4 text-slate-600" />
-          <span className="text-[15px] font-bold text-slate-900">{situation.title}</span>
-          <span className="ml-auto">
+          <span className="min-w-0 text-[15px] font-bold text-slate-900">{situation.title}</span>
+          <span className="ml-auto shrink-0">
             <LevelPill level={situation.level} />
           </span>
         </div>
-        <p className={cx('min-h-12 text-[17px] leading-snug font-bold', alert ? 'text-red-700' : 'text-slate-900')}>{situation.headline}</p>
+        <p className={cx('line-clamp-2 min-h-[2lh] text-[17px] leading-snug font-bold', alert ? 'text-red-700' : 'text-slate-900')}>{situation.headline}</p>
         <dl className="grid grid-cols-3 gap-2 border-t border-slate-100 pt-3">
           {situation.metrics.map((m) => (
             <div key={m.label} className="flex min-w-0 flex-col gap-1">
@@ -94,7 +94,7 @@ export function EventRow({
     finally { setPending(null); }
   }
   return (
-    <li id={`event-${event.id}`} aria-busy={!!pending} className={cx('flex gap-3 px-4 py-2.5 transition-colors', flashing && 'slide-in bg-red-50/60', event.status === 'resolved' && 'bg-slate-50')}>
+    <li id={`event-${event.id}`} aria-busy={!!pending} className={cx('flex flex-wrap gap-3 px-4 py-2.5 transition-colors sm:flex-nowrap', flashing && 'slide-in bg-red-50/60', event.status === 'resolved' && 'bg-slate-50')}>
       <SeverityBadge severity={event.severity} />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -115,7 +115,7 @@ export function EventRow({
         {error && <p role="alert" className="mt-1 text-xs text-red-700">操作失败：{error}，请重试。</p>}
       </div>
       {onStatus && event.status !== 'resolved' && (
-        <div className="flex shrink-0 items-start gap-1">
+        <div className="flex w-full shrink-0 items-start justify-end gap-1 sm:w-auto">
           {event.status === 'open' && (
             <button disabled={!!pending} onClick={() => void changeStatus('acknowledged')} className="rounded border border-slate-200 px-2 py-0.5 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50">
               {pending === 'acknowledged' ? '确认中…' : '确认'}

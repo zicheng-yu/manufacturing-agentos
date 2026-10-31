@@ -136,10 +136,15 @@ export function createApp(deps: Deps): Hono<AppEnv> {
   app.get('/api/conversations', (c) => {
     const account = requireAccount(c);
     const agentId = c.req.query('agentId');
+    const domain = c.req.query('domain');
+    const areaAgents = domain ? deps.registry.agents().filter(a => a.module === domain && !a.companyService && canUseAgent(account.role, a)).map(a => a.id) : [];
+    if (!agentId && domain && !areaAgents.length) return c.json([]);
     const rows = (
       agentId
         ? deps.db.prepare('SELECT * FROM conversations WHERE account_id = ? AND agent_id = ? ORDER BY updated_at DESC LIMIT 100').all(account.id, agentId)
-        : deps.db.prepare('SELECT * FROM conversations WHERE account_id = ? ORDER BY updated_at DESC LIMIT 100').all(account.id)
+        : domain
+          ? deps.db.prepare(`SELECT * FROM conversations WHERE account_id = ? AND agent_id IN (${areaAgents.map(() => '?').join(',')}) ORDER BY updated_at DESC LIMIT 100`).all(account.id, ...areaAgents)
+          : deps.db.prepare('SELECT * FROM conversations WHERE account_id = ? ORDER BY updated_at DESC LIMIT 100').all(account.id)
     ) as Row[];
     return c.json(rows.map(rowToConversation));
   });

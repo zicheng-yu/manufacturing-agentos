@@ -1,4 +1,4 @@
-import type { AgentOSEvent, Domain, ModuleOverview, Signal } from '@agentos/shared';
+import type { AgentOSEvent, Domain, ModuleOverview, Signal, TableArtifact } from '@agentos/shared';
 import { Bot } from 'lucide-react';
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router';
@@ -8,6 +8,21 @@ import { EventRow, SignalDrawer, SignalList, SituationCard, useFlash } from '../
 import { useLive, useSession } from '../session.tsx';
 import { Card, DOMAIN_ICONS, Empty, Photo, reading, Section, Spinner } from '../ui.tsx';
 const HrWorkbench = lazy(() => import('./hr/HrWorkbench.tsx').then((m) => ({ default: m.HrWorkbench })));
+
+function PolicyLibrary({ table }: { table: TableArtifact }) {
+  return <div className="space-y-3 p-3 sm:p-4">
+    <p className="text-xs text-slate-500">点击制度名称展开全文，支持换行阅读。</p>
+    {table.rows.map(([id, category, title, content]) => <details key={id} className="group min-w-0 rounded-lg border border-slate-200">
+      <summary className="cursor-pointer p-3 text-sm marker:text-brand-600">
+        <span className="font-semibold text-slate-900">{title}</span>
+        <span className="mt-1 block text-xs text-slate-500">{category} · {id}</span>
+        <span className="mt-2 block text-xs text-brand-700"><span className="group-open:hidden">展开全文</span><span className="hidden group-open:inline">收起全文</span></span>
+      </summary>
+      <div className="border-t border-slate-100 p-3 sm:p-4"><p className="whitespace-pre-wrap text-sm leading-7 text-slate-700">{content}</p></div>
+    </details>)}
+    {table.note && <p className="text-xs text-slate-500">{table.note}</p>}
+  </div>;
+}
 
 export function ModulePage() {
   const domain = useParams().domain as Domain;
@@ -55,10 +70,10 @@ export function ModulePage() {
             <h1 className="mt-1 text-[26px] leading-tight font-bold">{module.name}</h1>
             <p className="mt-1 max-w-2xl text-sm text-slate-300">{module.description}</p>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex min-w-0 w-full flex-wrap gap-2 xl:w-auto">
             {agents.map((a) => (
-              <Link key={a.id} to={a.companyService ? '/employee-service' : '/agents/' + a.id} className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-white/30 bg-ink-900/40 px-3.5 text-sm hover:bg-white/15">
-                <Bot className="size-4" />
+              <Link key={a.id} to={a.companyService ? '/employee-service' : '/agents/' + a.id} className="inline-flex min-h-10 max-w-full items-center gap-1.5 rounded-lg border border-white/30 bg-ink-900/40 px-3.5 py-2 text-sm hover:bg-white/15">
+                <Bot className="size-4 shrink-0" />
                 {a.name}
               </Link>
             ))}
@@ -69,11 +84,11 @@ export function ModulePage() {
       <Section no="01" title="态势与指标" en="SITUATION">
         <div className="grid gap-4 lg:grid-cols-3">
           <SituationCard situation={situation} flashing={flashing(domain)} signalCount={signals.data?.length} linkToModule={false} />
-          <dl className="grid content-start grid-cols-2 gap-3 lg:col-span-2 lg:grid-cols-4">
+          <dl className="grid min-w-0 content-start grid-cols-2 gap-3 lg:col-span-2 2xl:grid-cols-4">
             {metrics.map((m) => (
-              <div key={m.label} className="flex min-h-28 flex-col justify-between gap-2 rounded-[10px] border border-slate-200 bg-white p-4">
+              <div key={m.label} className="flex min-h-28 min-w-0 flex-col justify-between gap-2 rounded-[10px] border border-slate-200 bg-white p-4">
                 <dt className="text-xs text-slate-500">{m.label}</dt>
-                <dd className="num text-[34px] leading-none font-bold text-slate-900">
+                <dd className={`num flex flex-wrap items-baseline leading-none font-bold text-slate-900 ${reading(m.value).length > 7 ? 'text-2xl' : 'text-3xl sm:text-[34px]'}`}>
                   {reading(m.value)}
                   {m.unit && <span className="ml-1 text-sm font-normal text-slate-500">{m.unit}</span>}
                 </dd>
@@ -90,7 +105,7 @@ export function ModulePage() {
           <div className="space-y-5">
             {tables.filter((t) => domain !== 'hr' || t.title !== '员工服务请求').map((t) => (
               <Card key={t.title} title={t.title}>
-                <DataTable table={t} />
+                {domain === 'hr' && t.title === '制度库' ? <PolicyLibrary table={t} /> : <DataTable table={t} />}
               </Card>
             ))}
           </div>

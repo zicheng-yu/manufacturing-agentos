@@ -8,6 +8,19 @@ import { STORYLINE, stepBody } from '../src/seed/storyline.ts';
 import { setup } from './helpers.ts';
 
 describe('accounts and permissions', () => {
+  it('filters conversation history by area before applying the limit', async () => {
+    const env = setup();
+    try {
+      const cookie = await env.login('chairman');
+      const account = env.deps.db.prepare('SELECT id FROM accounts WHERE username = ?').get('chairman')!;
+      const insert = env.deps.db.prepare('INSERT INTO conversations (id, account_id, agent_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)');
+      insert.run('old-production', account.id, 'production.equipment', '设备历史', '2026-10-01T00:00:00Z', '2026-10-01T00:00:00Z');
+      for (let i = 0; i < 100; i++) insert.run(`new-supply-${i}`, account.id, 'supply.inventory', '供应链历史', '2026-10-02T00:00:00Z', '2026-10-02T00:00:00Z');
+      expect((await env.get('/api/conversations?domain=production', cookie)).body.map((c: any) => c.id)).toEqual(['old-production']);
+      expect((await env.get('/api/conversations?domain=production', await env.login('quality'))).body).toEqual([]);
+    } finally { env.deps.db.close(); }
+  });
+
   it('sorts events by urgency before limiting, while preserving time order, status and module filters', async () => {
     const env = setup();
     try {

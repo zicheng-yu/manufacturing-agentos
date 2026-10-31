@@ -10,6 +10,8 @@ import { useLive, useSession } from '../session.tsx';
 import { Card, cx, DomainTag, Empty, Lamp, Photo, Section, Spinner, formatTime } from '../ui.tsx';
 
 const SEVERITY_RANK = { info: 0, warn: 1, critical: 2 } as const;
+/** Signals and the event/task feed share one height. */
+const PANEL = 'flex h-[480px] flex-col overflow-hidden xl:h-[560px]';
 
 function sortSignals(signals: Signal[]): Signal[] {
   return [...signals].sort((a, b) => SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity] || b.lastAt.localeCompare(a.lastAt));
@@ -121,7 +123,11 @@ function Briefing({ turn, onRun, running, executive }: { turn: Turn | null; onRu
           <Spinner className="text-brand-600" /> 经营决策助手正在读取各模块的态势、信号与共享记忆…
         </div>
       )}
-      {!running && !turn && <Empty>{executive ? '点击右上角，让经营决策助手给出今天最需要决定的事' : '仅董事长可生成决策简报'}</Empty>}
+      {!running && !turn && (
+        <p className="px-4 py-4 text-sm text-slate-500">
+          {executive ? '经营决策助手会读取各模块的态势、活跃信号与共享记忆，列出今天最需要决定的三件事：影响、建议负责人、完成时间与依据信号。' : '仅董事长可生成决策简报'}
+        </p>
+      )}
       {turn && (
         <div className={cx('space-y-4 p-4', running && 'opacity-50')}>
           <div>
@@ -164,6 +170,7 @@ export function Cockpit() {
   const { flashing, flash } = useFlash();
   const [signalId, setSignalId] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
+  const [feed, setFeed] = useState<'events' | 'tasks'>('events');
   const executive = session?.account.role === 'executive';
 
   useLive((message) => {
@@ -198,6 +205,7 @@ export function Cockpit() {
 
   const alerting = data.situations.filter((x) => x.level === 'alert');
   const openTasks = data.tasks.filter((t) => t.status === 'open').length;
+  const unresolved = data.events.filter((e) => e.status !== 'resolved').length;
 
   return (
     <div className="mx-auto max-w-[1360px] space-y-7 px-4 pt-5 pb-10 md:px-7 md:pt-6">
@@ -263,39 +271,54 @@ export function Cockpit() {
         </div>
       </Section>
 
-      <div className="grid gap-7 xl:grid-cols-3 xl:gap-5">
-        <Section no="02" title="今日决策" en="DECISIONS" className="xl:col-span-2">
-          <div id="briefing" className="scroll-mt-4">
-            <Briefing turn={data.briefing} onRun={() => void runBriefing()} running={running} executive={executive} />
-          </div>
-        </Section>
-        <Section no="03" title={`活跃信号`} en="SIGNALS" action={<span className="num text-xl font-bold text-slate-900">×{data.signals.length}</span>}>
+      <Section no="02" title="今日决策" en="DECISIONS">
+        <div id="briefing" className="scroll-mt-4">
+          <Briefing turn={data.briefing} onRun={() => void runBriefing()} running={running} executive={executive} />
+        </div>
+      </Section>
+
+      {/* Side by side at one fixed height, each list scrolling inside its panel, so neither column leaves a gap. */}
+      <div className="grid gap-7 xl:grid-cols-2 xl:gap-5">
+        <Section no="03" title="活跃信号" en="SIGNALS" action={<span className="num text-xl font-bold text-slate-900">×{data.signals.length}</span>}>
           <div id="signals" className="scroll-mt-4">
-            <Card>
-              <SignalList signals={data.signals} flashing={flashing} onOpen={setSignalId} />
+            <Card className={PANEL}>
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                <SignalList signals={data.signals} flashing={flashing} onOpen={setSignalId} />
+              </div>
             </Card>
           </div>
         </Section>
-      </div>
-
-      <div className="grid gap-7 xl:grid-cols-3 xl:gap-5">
-        <Section no="04" title="实时事件流" en="EVENT STREAM" className="xl:col-span-2">
-          <Card>
-            {data.events.length ? (
-              <ul className="max-h-[520px] divide-y divide-slate-100 overflow-y-auto">
-                {data.events.map((e) => (
-                  <EventRow key={e.id} event={e} flashing={flashing(e.id)} onStatus={setEventStatus} />
-                ))}
-              </ul>
-            ) : (
-              <Empty>暂无事件</Empty>
-            )}
-          </Card>
-        </Section>
-        <Section no="05" title="待办" en="TASKS" action={<span className="num text-xl font-bold text-slate-900">×{openTasks}</span>}>
-          <Card>
-            {data.tasks.length ? (
-              <ul className="max-h-[520px] divide-y divide-slate-100 overflow-y-auto">
+        <Section no="04" title="事件与待办" en="EVENTS · TASKS">
+          <Card className={PANEL}>
+            <div role="tablist" aria-label="事件与待办" className="flex shrink-0 gap-1 border-b border-slate-100 px-2">
+              {([['events', '实时事件', unresolved, '未解决'], ['tasks', '待办', openTasks, '未完成']] as const).map(([key, label, count, unit]) => (
+                <button
+                  key={key}
+                  role="tab"
+                  aria-selected={feed === key}
+                  onClick={() => setFeed(key)}
+                  className={cx('-mb-px flex items-center gap-1.5 border-b-2 px-3 py-3 text-sm', feed === key ? 'border-brand-600 font-bold text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-800')}
+                >
+                  {label}
+                  <span className={cx('rounded px-1.5 py-0.5 text-[11px] font-medium', count ? 'bg-brand-50 text-brand-700' : 'bg-slate-100 text-slate-500')}>
+                    {count} {unit}
+                  </span>
+                </button>
+              ))}
+            </div>
+            <div role="tabpanel" className="min-h-0 flex-1 overflow-y-auto">
+              {feed === 'events' ? (
+                data.events.length ? (
+                  <ul className="divide-y divide-slate-100">
+                    {data.events.map((e) => (
+                      <EventRow key={e.id} event={e} flashing={flashing(e.id)} onStatus={setEventStatus} />
+                    ))}
+                  </ul>
+                ) : (
+                  <Empty>暂无事件</Empty>
+                )
+              ) : data.tasks.length ? (
+              <ul className="divide-y divide-slate-100">
                 {data.tasks.map((t) => (
                   <li key={t.id} className={`flex gap-2.5 px-4 py-2.5 ${flashing(t.id) ? 'slide-in bg-brand-50' : ''}`}>
                     <button onClick={() => void toggleTask(t)} aria-label={t.status === 'done' ? '标记为未完成' : '标记为已完成'} className="mt-0.5 text-slate-400 hover:text-brand-600">
@@ -312,9 +335,10 @@ export function Cockpit() {
                   </li>
                 ))}
               </ul>
-            ) : (
-              <Empty>暂无待办</Empty>
-            )}
+              ) : (
+                <Empty>暂无待办。智能体分析产生的行动项会出现在这里</Empty>
+              )}
+            </div>
           </Card>
         </Section>
       </div>

@@ -17,7 +17,7 @@ export const orgAgent: AgentDefinition = {
   id: 'hr.org',
   module: 'hr',
   name: '招聘与组织助手',
-  description: '编制与在岗、关键岗位招聘进度、离职预警',
+  description: '计划人数与在岗、关键岗位招聘进度、离职预警',
   instructions:
     '你负责招聘与组织健康。先说关键岗位与减员风险，再给招聘优先级建议。员工姓名与离职原因不对外提供，也不得猜测原因；被问到时说明请联系 HR 经理。',
   starters: ['哪些关键岗位还空着？', '供应链部的人员情况', '本月组织健康怎么样'],
@@ -35,7 +35,7 @@ export const orgAgent: AgentDefinition = {
     return {
       headline: critical.length ? `${critical.length} 个关键岗位空缺，最长 ${daysOpen(critical[0], today)} 天` : '关键岗位已全部到岗',
       blocks: [
-        { title: '编制与在岗', lines: departments.map((d) => `${d.name}：在岗 ${d.actual} / 编制 ${d.plan}`) },
+        { title: '计划人数与在岗', lines: departments.map((d) => `${d.name}：在岗 ${d.actual} / 计划人数 ${d.plan}`) },
         {
           title: '关键岗位招聘',
           lines: critical.length
@@ -56,7 +56,7 @@ export const orgAgent: AgentDefinition = {
         {
           kind: 'table',
           title: '组织健康',
-          columns: ['部门', '编制', '在岗', '缺编', '招聘中关键岗位', '30 天离职预警'],
+          columns: ['部门', '计划人数', '在岗', '人员缺口', '招聘中关键岗位', '30 天离职预警'],
           rows: departments.map((d) => [
             d.name,
             d.plan,

@@ -3,7 +3,7 @@ import { useState, type FormEvent } from 'react';
 import { api, useApi } from '../../api.ts';
 import { cx, Empty, Spinner } from '../../ui.tsx';
 
-const FIELD = 'mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800';
+const FIELD = 'mt-1 min-w-0 w-full max-w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800';
 const BUTTON = 'rounded-lg bg-brand-600 px-3 py-2 text-sm text-white disabled:opacity-50';
 interface Metrics { total: number; answered: number; clarify: number; handoff: number; faqReuse: number; averageLatencyMs: number | null; activeDocuments: number; }
 interface FaqSource { id: string; question: string; answer: string; }
@@ -49,8 +49,8 @@ export function KnowledgeManager({ selectedId: initialId, onBusy, onChanged }: {
     <p className="text-xs text-slate-400">按已保存的问答轮次统计，耗时由服务端记录。<button type="button" onClick={() => void metrics.reload()} className="ml-2 text-brand-700">刷新统计</button></p>
     {metrics.error || knowledge.error || error ? <p role="alert" className="text-sm text-red-700">{error || knowledge.error || metrics.error} <button type="button" onClick={refresh} className="underline">刷新</button></p> : null}
     {!knowledge.data && knowledge.loading ? <Spinner /> : null}
-    <div className="grid gap-4 lg:grid-cols-[minmax(220px,1fr)_minmax(0,2fr)]">
-      <ul className="max-h-[600px] space-y-2 overflow-y-auto">
+    <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(220px,1fr)_minmax(0,2fr)]">
+      <ul className="min-w-0 max-h-80 space-y-2 overflow-y-auto xl:max-h-[600px]">
         {knowledge.data?.map((version) => <li key={version.id}><button type="button" disabled={busy}
           onClick={() => { setSelectedId(version.id); setCreating(false); setRevising(false); setError(''); }}
           className={cx('w-full rounded-lg border p-3 text-left disabled:opacity-50', selectedId === version.id ? 'border-brand-300 bg-brand-50' : 'border-slate-200')}>
@@ -61,12 +61,12 @@ export function KnowledgeManager({ selectedId: initialId, onBusy, onChanged }: {
       {creating || (selected && (revising || selected.status === 'draft') && !selected.archived)
         ? <KnowledgeEditor key={creating ? 'new' : selected!.id + ':' + selected!.revision + ':' + revising} version={creating ? undefined : selected}
             onBusy={setPending} onSaved={(version) => { setSelectedId(version.id); setCreating(false); setRevising(false); refresh(); }} />
-        : selected ? <div className="space-y-3 rounded-lg border border-slate-200 p-4">
+        : selected ? <div className="min-w-0 space-y-3 rounded-lg border border-slate-200 p-4">
             <h3 className="font-semibold text-slate-900">{selected.title} · v{selected.version}</h3>
             <p className="text-xs text-slate-500">{selected.scope} · 生效：{selected.effectiveFrom ?? '历史演示制度未标注'} · 失效：{selected.effectiveTo ?? '未设置'}</p>
             {selected.publishedBy ? <p className="text-xs text-slate-500">发布人：{selected.publishedBy}</p> : null}
             <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">{selected.content}</p>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               {!selected.archived ? <button type="button" disabled={busy} className={BUTTON} onClick={() => setRevising(true)}>新建修订草稿</button> : null}
               <button type="button" disabled={busy} className="rounded-lg border border-slate-300 px-3 py-2 text-sm" onClick={() => void archive(selected)}>{selected.archived ? '恢复制度' : '停用整份制度'}</button>
             </div>
@@ -115,7 +115,7 @@ export function KnowledgeEditor({ version, sourceRequest, onBusy, onSaved }: {
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); onBusy(false); }
   }
-  return <form onSubmit={save} className="space-y-3 rounded-lg border border-slate-200 p-4" aria-busy={busy}>
+  return <form onSubmit={save} className="min-w-0 space-y-3 rounded-lg border border-slate-200 p-4" aria-busy={busy}>
     <h3 className="font-medium text-slate-800">{sourceRequest ? '将人工答复整理为通用 FAQ' : editableDraft ? '编辑与审核草稿' : version ? '新建修订草稿' : '录入制度或 FAQ'}</h3>
     {sourceRequest ? <p className="text-xs text-amber-800">只保留通用问题和答复，移除姓名、个人工资等信息。保存后仍需到知识库审核发布。</p> : null}
     <fieldset disabled={busy} className="space-y-3">
