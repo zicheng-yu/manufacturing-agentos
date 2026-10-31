@@ -333,7 +333,8 @@ function order(orders: WorkOrder[], strategy: Strategy, now: Date): WorkOrder[] 
  * Finite-capacity schedule from tomorrow: orders in the strategy's sequence, each to the feasible line that
  * finishes it soonest. Daily output = min(max daily capacity, hours × 3600 / unit seconds × OEE).
  */
-export function planWith(db: DB, now: Date, strategy: Strategy): Plan {
+/** `hours` overrides each line's daily hours, e.g. an overtime scenario. */
+export function planWith(db: DB, now: Date, strategy: Strategy, hours?: (line: Line) => number): Plan {
   const lines = new Map(listLines(db).map((l) => [l.id, l]));
   const oee = new Map(lineOee(db).map((l) => [l.line, l.oee / 100]));
   const plantOee = avg([...oee.values()]) || 0.7;
@@ -347,9 +348,10 @@ export function planWith(db: DB, now: Date, strategy: Strategy): Plan {
       const line = lines.get(lineId);
       const s = state.get(lineId);
       if (!line || !s) continue;
-      const daily = Math.min(line.maxDaily, ((line.hours * 3600) / o.unitSeconds) * (oee.get(lineId) ?? plantOee));
+      const lineHours = hours?.(line) ?? line.hours;
+      const daily = Math.min(line.maxDaily, ((lineHours * 3600) / o.unitSeconds) * (oee.get(lineId) ?? plantOee));
       const changeover = changeoverMinutes(db, s.last, o.product);
-      const begin = s.day + changeover / (line.hours * 60);
+      const begin = s.day + changeover / (lineHours * 60);
       const end = begin + o.qty / daily;
       if (!best || end < best.end) best = { line: lineId, begin, end, changeover };
     }
@@ -375,6 +377,13 @@ export function planWith(db: DB, now: Date, strategy: Strategy): Plan {
 /** Try each sequencing strategy and keep the one with the least tier-weighted lateness. */
 export function compareStrategies(db: DB, now: Date): Plan[] {
   return (['priority', 'due', 'slack'] as Strategy[]).map((s) => planWith(db, now, s)).sort((a, b) => a.weightedLateness - b.weightedLateness || a.late - b.late);
+}
+
+/** Best strategy again with every line running 24 hours a day (still capped at its maximum daily output). */
+export function overtimePlan(db: DB, now: Date): Plan {
+  return (['priority', 'due', 'slack'] as Strategy[])
+    .map((s) => planWith(db, now, s, () => 24))
+    .sort((a, b) => a.weightedLateness - b.weightedLateness || a.late - b.late)[0];
 }
 
 export function schedule(db: DB, now: Date): Plan {

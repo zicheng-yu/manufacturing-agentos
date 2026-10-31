@@ -83,7 +83,7 @@ export function resolveMaterial(materials: Material[], suppliers: Supplier[], in
     if (current) return current;
     // Stop at an unknown subject in history as well: later follow-ups cannot revive an older topic.
     const remainder = subject
-      .replace(/更便宜|行不行|可不可以|怎么样|多少钱|供应商|付款条件|安全库存|补货|补|库存|缺料|断料|在途|加急|排产|到货|月结|预付|余款|账期|财务|确认|审批|采购|下单|交期|报价|价格|比价|划算|合适|风险|替代|推荐|选择|换成|换|那家|这家|上面|刚才|之前|为啥|为什么|多少|多久|能否|可以|需要|是否|够用|能用|够|几|MOQ|如何|怎么|还|再|那|这|它|要|的|呢|吗|了|好|选|天|元|万|我|请|帮/gi, '')
+      .replace(/更便宜|行不行|可不可以|怎么样|多少钱|供应商|付款条件|安全库存|补货|补|库存|缺料|断料|在途|加急|排产|到货|月结|预付|余款|账期|财务|确认|审批|流程|手续|批准|谁批|谁来批|签字|金额|总额|采购|下单|交期|报价|价格|比价|划算|合适|风险|替代|推荐|选择|换成|换|那家|这家|这笔|那笔|上面|刚才|之前|为啥|为什么|什么|多少|多久|能否|可以|需要|是否|够用|能用|够|几|MOQ|如何|怎么|走|还|再|那|这|它|要|的|呢|吗|了|好|选|天|元|万|我|请|帮|谁/gi, '')
       .replace(/[\s\p{P}\p{S}\d]/gu, '');
     if (remainder) return null;
   }

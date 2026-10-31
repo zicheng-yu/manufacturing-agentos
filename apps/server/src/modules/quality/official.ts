@@ -196,9 +196,11 @@ export function doeSummary(db: DB) {
   return {
     trials: rows.length,
     best: rows.slice(0, 5),
+    // Middle half (P25–P75) of the top trials: the full min–max of the top 10% spans nearly the whole range.
     window: FACTORS.map(([f, label]) => {
-      const values = top.map((r) => Number(r[f])).filter(Number.isFinite);
-      return { factor: label, min: round(Math.min(...values), 1), max: round(Math.max(...values), 1) };
+      const values = top.map((r) => Number(r[f])).filter(Number.isFinite).sort((a, b) => a - b);
+      const at = (q: number) => values[Math.min(values.length - 1, Math.max(0, Math.round(q * (values.length - 1))))];
+      return { factor: label, min: round(at(0.25), 1), max: round(at(0.75), 1), mid: round(at(0.5), 1) };
     }),
     effects: FACTORS.map(([f, label]) => ({
       factor: label,
@@ -209,17 +211,38 @@ export function doeSummary(db: DB) {
 
 const table = (title: string, columns: string[], rows: (string | number)[][], note?: string): TableArtifact => ({ kind: 'table', title, columns, rows, note });
 
+/** Adds working days (Monday to Friday) for CAPA time limits. */
+function addWorkingDays(from: Date, days: number): Date {
+  let date = from;
+  for (let left = days; left > 0; ) {
+    date = addDays(date, 1);
+    if (date.getUTCDay() !== 0 && date.getUTCDay() !== 6) left--;
+  }
+  return date;
+}
+
+/** Fatal nonconformances sharing a defect code: repeated defects that trigger CAPA under 11.1. */
+function repeatedFatal(open: Nc[]): { defect: string; ids: string[] }[] {
+  const groups = new Map<string, string[]>();
+  for (const n of open) groups.set(n.defect, [...(groups.get(n.defect) ?? []), n.id]);
+  return [...groups].filter(([, ids]) => ids.length >= 2).map(([defect, ids]) => ({ defect, ids }));
+}
+
 export const defectAgent: AgentDefinition = {
   id: 'quality.defects',
   module: 'quality',
   name: '不良分析助手',
   description: '按不良现象、工序与责任部门做 Pareto，追踪 8D 进度，找出未开单的致命不良',
-  instructions: `你负责制程不良分析。先说致命不良与未开 8D 的情况（${cite('QMS-2025-001-8.1')}：致命 / 批量须质委会评审、总经理批准），再给 Pareto 前几项与改善方向；8D 时限按${cite('QMS-2025-001-11.1')}。`,
+  instructions: `你负责制程不良分析。先说致命不良与未开 8D 的情况：${cite('QMS-2025-001-8.1')}规定的是不合格品分级与处置权限（致命 / 批量由质委会评审、总经理批准），并未规定致命不良必须开 8D，立项 8D 是管理建议；重复不良按${cite('QMS-2025-001-11.1')} 15 个工作日完成 CAPA。再给 Pareto 前几项与改善方向。`,
   starters: ['哪些致命不良还没开 8D？', '不良主要集中在哪些现象和工序', '8D 进度怎么样'],
   context({ db, now }) {
     const s = ncSummary(db);
     if (s.all.length === 0) return { headline: '暂无不良记录', blocks: [] };
     const top = s.byDefect.slice(0, 3);
+    const repeated = repeatedFatal(s.fatalWithout8d);
+    const capaDue = isoDate(addWorkingDays(now, 15));
+    const inCapa = new Set(repeated.flatMap((r) => r.ids));
+    const rest = s.fatalWithout8d.filter((n) => !inCapa.has(n.id));
     return {
       headline: `${s.fatalWithout8d.length} 单致命不良未开 8D；前三项现象占不良数 ${percent(top.reduce((a, b) => a + b.share, 0), 1)}`,
       blocks: [
@@ -227,7 +250,14 @@ export const defectAgent: AgentDefinition = {
         { title: '不良现象 Pareto（按不良数）', lines: s.byDefect.map((p) => `${p.key}：${p.value} 件（${percent(p.share, 1)}）`) },
         { title: '工序 Pareto', lines: s.byProcess.slice(0, 5).map((p) => `${p.key}：${p.value} 件（${percent(p.share, 1)}）`) },
         { title: '8D 进度', lines: s.byStatus.map((p) => `${p.key}：${p.value} 单`) },
-        { title: '依据', lines: [`${cite('QMS-2025-001-8.1')}：致命 / 批量不良由质委会评审，总经理批准`, `${cite('QMS-2025-001-11.1')}：内部不合格（连续 3 批或重复不良）15 个工作日完成 CAPA`] },
+        {
+          title: '未开 8D 的致命不良中的重复不良（触发 11.1 CAPA）',
+          lines: [
+            ...(repeated.length ? repeated.map((r) => `${r.defect}：${r.ids.join('、')}，按 11.1 应在 ${capaDue} 前（15 个工作日）完成 CAPA`) : ['无同一现象重复']),
+            `不重复的其余 ${rest.length} 单：${rest.map((n) => `${n.id}（${n.defect}）`).join('、') || '无'}`,
+          ],
+        },
+        { title: '依据', lines: [`${cite('QMS-2025-001-8.1')}：致命 / 批量不合格品的处置由质委会评审、总经理批准（条款未规定 8D 时限）`, `${cite('QMS-2025-001-11.1')}：内部不合格连续 3 批或重复不良，15 个工作日完成 CAPA`] },
       ],
       facts: [
         `${s.all.length} 单不良，综合不良率 ${percent(s.rate, 2)}`,
@@ -236,8 +266,17 @@ export const defectAgent: AgentDefinition = {
         `第一大不良现象：${s.byDefect[0].key}（${percent(s.byDefect[0].share, 1)}）`,
       ],
       pending: ['未开 8D 的原因（是否已合并到其他单据）需品质部核实'],
-      suggestions: [`本周内为 ${s.fatalWithout8d.length} 单致命不良全部立项 8D，并提交质委会评审`, `针对「${s.byDefect[0].key}」和「${s.byProcess[0].key}」工序做专项改善`],
-      actions: s.fatalWithout8d.length ? [{ title: `为 ${s.fatalWithout8d.length} 单致命不良立项 8D 并提交质委会`, owner: '品质经理', due: isoDate(addDays(now, 2)) }] : [],
+      suggestions: [
+        `按 8.1 将 ${s.fatalWithout8d.length} 单致命不良提交质委会评审处置，由总经理批准`,
+        ...(repeated.length ? [`重复不良（${repeated.map((r) => r.defect).join('、')}）按 11.1 在 ${capaDue} 前完成 CAPA`] : []),
+        ...(rest.length ? [`其余 ${rest.length} 单（${rest.map((n) => n.id).join('、')}）建议立项 8D 追溯根因（管理建议，制度未规定时限）`] : []),
+      ],
+      actions: s.fatalWithout8d.length
+        ? [
+            { title: `组织质委会评审 ${s.fatalWithout8d.length} 单致命不良的处置（${s.fatalWithout8d.slice(0, 3).map((n) => n.id).join('、')} 等）`, owner: '品质经理，总经理批准', due: isoDate(addDays(now, 1)) },
+            ...repeated.map((r) => ({ title: `${r.defect} 重复不良启动 CAPA（${r.ids.join('、')}）`, owner: '品质经理', due: capaDue })),
+          ]
+        : [],
       artifacts: [
         table('致命不良未开 8D', ['不良单', '日期', '工单', '工序', '现象', '不良数', '生产数', '责任部门'], s.fatalWithout8d.map((n) => [n.id, n.date, n.workOrder, n.process, n.defect, n.defectQty, n.produced, n.dept])),
         table('不良现象 Pareto', ['现象', '不良数', '占比'], s.byDefect.map((p) => [p.key, p.value, percent(p.share, 1)])),
@@ -288,21 +327,34 @@ export const doeAgent: AgentDefinition = {
   description: '从 300 组注塑 DOE 中找最优参数窗口，说明各参数对翘曲的影响',
   instructions: `你负责注塑工艺参数。推荐窗口取综合评分前 10% 试验的参数范围；相关系数只表示方向和强弱，不代表因果；参数变更须按${cite('QMS-2025-001-6.4')}做特殊过程确认。`,
   starters: ['注塑参数怎么设最好？', '哪个参数对翘曲影响最大', '最优几组试验是什么'],
-  context({ db }) {
+  context({ db, now }) {
     const d = doeSummary(db);
     if (d.trials === 0) return { headline: '暂无 DOE 数据', blocks: [] };
+    const effect = (r: number) => (Math.abs(r) < 0.1 ? '无明显影响' : `${Math.abs(r) >= 0.3 ? '中等' : '弱'}相关，${r < 0 ? '升高时翘曲减小' : '升高时翘曲增大'}`);
+    const fastest = [...d.best].sort((a, b) => Number(a.cycle) - Number(b.cycle))[0];
+    const best = d.best[0];
     return {
       headline: `推荐窗口来自 ${d.trials} 组试验中评分前 10%；对翘曲影响最大的是${d.effects[0].factor}`,
       blocks: [
-        { title: '推荐参数窗口（评分前 10%）', lines: d.window.map((w) => `${w.factor}：${w.min}–${w.max}`) },
-        { title: '与翘曲变形的相关系数', lines: d.effects.map((e) => `${e.factor}：${e.warpage}（${e.warpage < 0 ? '升高时翘曲减小' : '升高时翘曲增大'}）`) },
+        { title: '推荐参数窗口（评分前 10% 试验的中间一半 P25–P75，中位数）', lines: d.window.map((w) => `${w.factor}：${w.min}–${w.max}（中位 ${w.mid}）`) },
+        { title: '与翘曲变形的相关系数', lines: d.effects.map((e) => `${e.factor}：${e.warpage}（${effect(e.warpage)}）`) },
+        {
+          title: '翘曲与节拍的取舍',
+          lines: [`翘曲最低：${best.id} 翘曲 ${best.warpage} mm，周期 ${best.cycle}s`, ...(fastest.id !== best.id ? [`前 5 组中周期最短：${fastest.id} 周期 ${fastest.cycle}s，翘曲 ${fastest.warpage} mm`] : [])],
+        },
+        { title: '评分口径', lines: ['综合评分来自素材包，越高越好（与翘曲负相关），各指标权重素材包未说明'] },
+        { title: '依据', lines: [`${cite('QMS-2025-001-6.4')}：注塑为特殊过程，确认料筒温度、注射压力保压、模温与试模样板，每次模具维护后复确认`] },
         { title: '最优试验', lines: d.best.map((r) => `${r.id}：料温 ${r.melt_temp}，模温 ${r.mold_temp}，速度 ${r.speed}，保压 ${r.hold_pressure}，冷却 ${r.cooling} → 翘曲 ${r.warpage} mm，收缩 ${r.shrinkage}%，周期 ${r.cycle}s，评分 ${r.score}`) },
       ],
-      facts: [`最优试验 ${d.best[0].id}：翘曲 ${d.best[0].warpage} mm，评分 ${d.best[0].score}`],
-      pending: [`参数变更按${cite('QMS-2025-001-6.4')}做试模确认`],
-      suggestions: [`在推荐窗口中心试模 3 批，确认翘曲与周期后固化工艺卡`],
+      facts: [`最优试验 ${best.id}：翘曲 ${best.warpage} mm，周期 ${best.cycle}s，评分 ${best.score}`, `对翘曲影响最大的是${d.effects[0].factor}（相关系数 ${d.effects[0].warpage}）`],
+      pending: ['推荐参数需试模验证重复性，相关系数不代表因果'],
+      suggestions: [
+        `以 ${best.id} 参数连续试模 3 批验证翘曲与重复性${fastest.id !== best.id ? `；产能优先时对照 ${fastest.id}（周期短 ${round(Number(best.cycle) - Number(fastest.cycle), 1)}s）` : ''}`,
+        `按 6.4 完成注塑特殊过程确认（料筒温度、保压、模温、试模样板）后固化工艺卡`,
+      ],
+      actions: [{ title: `按 ${best.id} 参数试模 3 批并出具翘曲、收缩、周期报告`, owner: '工艺工程师，品质确认', due: isoDate(addDays(now, 5)) }],
       artifacts: [
-        table('推荐参数窗口', ['参数', '下限', '上限', '与翘曲相关系数'], d.window.map((w) => [w.factor, w.min, w.max, d.effects.find((e) => e.factor === w.factor)?.warpage ?? '—'])),
+        table('推荐参数窗口（P25–P75）', ['参数', '下限', '中位', '上限', '与翘曲相关系数'], d.window.map((w) => [w.factor, w.min, w.mid, w.max, d.effects.find((e) => e.factor === w.factor)?.warpage ?? '—'])),
         table('最优试验', ['批次', '料温', '模温', '速度', '保压', '冷却', '翘曲(mm)', '收缩(%)', '周期(s)', '评分'], d.best.map((r) => [String(r.id), Number(r.melt_temp), Number(r.mold_temp), Number(r.speed), Number(r.hold_pressure), Number(r.cooling), Number(r.warpage), Number(r.shrinkage), Number(r.cycle), Number(r.score)])),
       ],
     };
@@ -316,7 +368,7 @@ export function syncOfficialQuality(deps: Deps): void {
     ? [{
         key: 'plant',
         title: `${s.fatalWithout8d.length} 单致命不良未开 8D`,
-        summary: `${s.fatalWithout8d.map((n) => `${n.id} ${n.process} ${n.defect}`).slice(0, 4).join('；')}；按${cite('QMS-2025-001-8.1')}须质委会评审、总经理批准`,
+        summary: `${s.fatalWithout8d.map((n) => `${n.id} ${n.process} ${n.defect}`).slice(0, 4).join('；')}；按${cite('QMS-2025-001-8.1')}，致命不合格品的处置须质委会评审、总经理批准`,
         payload: { ncs: s.fatalWithout8d.map((n) => n.id), workOrders: s.fatalWithout8d.map((n) => n.workOrder), causes: ['品质异常'] },
       }]
     : [], '8D 规则');
