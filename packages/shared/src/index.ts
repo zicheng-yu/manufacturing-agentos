@@ -393,7 +393,8 @@ export interface Lesson {
   measure: string;
   result: string;
   conclusion: 'effective' | 'ineffective';
-  verification: { mode: 'auto' | 'manual'; passed: boolean; at: string; criterion: string };
+  /** Legacy cards without a bound verification must be confirmed again before reuse. */
+  verification: { entryId?: string; round?: number; mode: 'auto' | 'manual'; passed: boolean; at: string; criterion: string };
   tags: string[];
   confirmedBy: string;
   confirmedAt: string;

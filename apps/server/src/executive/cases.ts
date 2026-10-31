@@ -399,7 +399,7 @@ const clip = (text: string, length: number) => text.replace(/\s+/g, ' ').trim().
  * otherwise the chairman asking supply's assistant would carry HR or quality content into a supply-readable entry.
  * Only a cross-department assistant (module 'executive') is briefed with everything the asker can see.
  */
-function caseBrief(account: Account, audience: Scope, row: CaseRow, entries: StoredEntry[]): string {
+function caseBrief(deps: Deps, account: Account, audience: Scope, row: CaseRow, entries: StoredEntry[]): string {
   const seen = (domain: Scope) => canSee(account.role, domain) && (audience === 'executive' || domain === audience);
   const visible = entries.filter((e) => seen(e.domain));
   const originVisible = seen(row.origin.domain);
@@ -413,6 +413,17 @@ function caseBrief(account: Account, audience: Scope, row: CaseRow, entries: Sto
   if (contributions.length) {
     lines.push('其他岗位已有的贡献：');
     for (const e of contributions) lines.push(`- [${e.domain === 'executive' ? '经营决策' : DOMAIN_LABELS[e.domain]}｜${e.author.name}｜第 ${e.round} 轮｜${KIND_LABELS[e.kind]}] ${e.title}：${clip(e.body, 200)}`);
+  }
+  for (const entry of visible.filter((e) => e.kind === 'reference').slice(-4)) {
+    const lesson = referencedLesson(deps, entry);
+    if (!lesson || !seen(lesson.domain)) continue;
+    lines.push(
+      `历史经验参考：${lesson.title}（来源事项 ${lesson.sourceCaseId}，第 ${lesson.verification.round} 轮，${lesson.verification.at}，${lesson.verification.mode === 'auto' ? '系统重算' : '人工核验'}）`,
+      `适用条件：${lesson.conditions}`,
+      `措施：${lesson.measure}`,
+      `历史结论：${lesson.conclusion === 'effective' ? '有效' : '无效'}；${lesson.result}`,
+      '上述经验仅供参考，适用条件必须对照本次证据核查，不能代替本次验证。',
+    );
   }
   const pending = unique(visible.filter((e) => e.kind === 'analysis').flatMap((e) => e.pending)).slice(0, 5);
   if (pending.length) lines.push(`尚待核实：${pending.join('；')}`);
@@ -429,7 +440,7 @@ export async function askInCase(deps: Deps, account: Account, id: string, agentI
   if (!canUseAgent(account.role, agent)) fail(403, '当前账号无权使用该智能体');
   const text = question.trim();
   if (!text) fail(400, '问题不能为空');
-  const { conversation, turn } = await runTurn(deps, { account, agentId, question: text, caseContext: { caseId: id, summary: caseBrief(account, agent.module, row, entries) } });
+  const { conversation, turn } = await runTurn(deps, { account, agentId, question: text, caseContext: { caseId: id, summary: caseBrief(deps, account, agent.module, row, entries) } });
   // The model call can be slow. If the owner finished the case meanwhile, the answer stays in the asker's
   // conversation but is not added to a case that has already been verified.
   const current = readCase(deps, id);
@@ -672,17 +683,20 @@ export function saveLesson(
   id: string,
   input: { title?: string; symptom?: string; conditions: string; measure?: string; conclusion: 'effective' | 'ineffective' },
 ): void {
+  const initial = readCase(deps, id);
+  mustOpen(account, initial, loadEntries(deps, id));
+  mustManage(account, initial);
+  syncCase(deps, id);
   const row = readCase(deps, id);
   const entries = loadEntries(deps, id);
-  mustOpen(account, row, entries);
-  mustManage(account, row);
   if (row.status !== 'verified') fail(409, '只有已验证的事项可以沉淀经验');
   if (row.needsReview) fail(409, '验证之后又出现了新证据，请先复核或重新开启，再沉淀经验');
-  if (deps.db.prepare('SELECT 1 FROM case_lessons WHERE source_case_id = ?').get(id)) fail(409, '该事项已保存经验卡');
   const conditions = input.conditions.trim();
   if (conditions.length < 4) fail(400, '请写明适用条件');
-  const verification = entries.filter((e) => e.kind === 'verification' && e.data.passed === true).at(-1);
+  const verification = entries.filter((e) => e.kind === 'verification' && e.round === row.round && e.data.passed === true).at(-1);
   if (!verification) return fail(409, '没有通过的验证记录');
+  const saved = (deps.db.prepare('SELECT * FROM case_lessons WHERE source_case_id = ?').all(id) as Row[]).map(rowToLesson);
+  if (saved.some((lesson) => lesson.verification?.entryId === verification.id)) fail(409, '本次验证已保存经验卡');
   const mode = verification.data.mode as 'auto' | 'manual';
   // A lesson is readable by the origin department, so it may only describe what that department can see, and only
   // the round that actually passed: measures from rounds that failed the check are not evidence that something works.
@@ -695,7 +709,7 @@ export function saveLesson(
     measure,
     result: `${mode === 'auto' ? '系统重算' : '人工核验'}通过：${(verification.data.observed as string[]).join('；')}`,
     conclusion: input.conclusion,
-    verification: { mode, passed: true, at: String(verification.data.at), criterion: String(verification.data.criterion) },
+    verification: { entryId: verification.id, round: verification.round, mode, passed: true, at: String(verification.data.at), criterion: String(verification.data.criterion) },
   };
   deps.db
     .prepare('INSERT INTO case_lessons (id, source_case_id, title, domain, tags_json, data_json, confirmed_by, confirmed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
@@ -711,10 +725,20 @@ function similarLessons(deps: Deps, account: Account, row: CaseRow): Lesson[] {
     .map(forReader);
 }
 
-/** A lesson from a case that was later reopened or flagged for review is no longer proven. */
+/** Recheck the source even when nobody has opened it. A later verification cannot validate an older lesson. */
 function lessonStillValid(deps: Deps, lesson: Lesson): boolean {
-  const source = deps.db.prepare('SELECT status, needs_review FROM cases WHERE id = ?').get(lesson.sourceCaseId) as Row | undefined;
-  return !!source && source.status === 'verified' && Number(source.needs_review) === 0;
+  if (!deps.db.prepare('SELECT 1 FROM cases WHERE id = ?').get(lesson.sourceCaseId)) return false;
+  syncCase(deps, lesson.sourceCaseId);
+  const source = readCase(deps, lesson.sourceCaseId);
+  if (source.status !== 'verified' || source.needsReview || lesson.verification?.round !== source.round) return false;
+  const verification = loadEntries(deps, source.id).filter((e) => e.kind === 'verification').at(-1);
+  return !!verification && verification.data.passed === true && verification.id === lesson.verification.entryId;
+}
+
+function referencedLesson(deps: Deps, entry: StoredEntry): Lesson | null {
+  const row = deps.db.prepare('SELECT * FROM case_lessons WHERE id = ?').get(String(entry.data.lessonId)) as Row | undefined;
+  const lesson = row ? rowToLesson(row) : null;
+  return lesson && lessonStillValid(deps, lesson) ? lesson : null;
 }
 
 /** The tags are matching keys built from every object and cause of the source case, so they stay on the server. */
@@ -778,6 +802,8 @@ export function listCases(deps: Deps, account: Account): CaseSummary[] {
 
 function toEntry(deps: Deps, account: Account, entry: StoredEntry): CaseEntry {
   const data = { ...entry.data };
+  const invalidReference = entry.kind === 'reference' && !referencedLesson(deps, entry);
+  if (entry.kind === 'reference') data.valid = !invalidReference;
   if (entry.kind === 'evidence' && Array.isArray(data.eventIds)) {
     // Events are read now and redacted for this viewer; the case only keeps their ids.
     data.events = (data.eventIds as string[])
@@ -794,7 +820,7 @@ function toEntry(deps: Deps, account: Account, entry: StoredEntry): CaseEntry {
     title: entry.title,
     body: entry.body,
     facts: entry.facts,
-    pending: entry.pending,
+    pending: invalidReference ? [...entry.pending, '此经验已失效或需重新确认；保留引用历史，不再作为助手的有效参考。'] : entry.pending,
     suggestions: entry.suggestions,
     artifacts: entry.artifacts,
     data,
@@ -820,8 +846,8 @@ export function caseDetail(deps: Deps, account: Account, id: string): CaseDetail
     .filter((a) => !a.companyService && canUseAgent(account.role, a))
     .sort((a, b) => Number(involved.has(b.module)) - Number(involved.has(a.module)))
     .map((a) => ({ id: a.id, name: a.name, domain: a.module, description: a.description, starters: deps.registry.starters(a).slice(0, 3) }));
-  const lessonRow = deps.db.prepare('SELECT * FROM case_lessons WHERE source_case_id = ?').get(id) as Row | undefined;
-  const lesson = lessonRow ? rowToLesson(lessonRow) : null;
+  const lesson = (deps.db.prepare('SELECT * FROM case_lessons WHERE source_case_id = ? ORDER BY confirmed_at DESC, rowid DESC').all(id) as Row[])
+    .map(rowToLesson).find((item) => canSee(account.role, item.domain) && lessonStillValid(deps, item)) ?? null;
   // Only readings of objects this viewer can already see: an object hidden from the summary must not show up here.
   const shownObjects = summaryFor(deps, account, row, entries).objects;
   const live = liveReadings(deps, { origin: row.origin, objects: shownObjects }).filter((r) => canSee(account.role, r.domain));

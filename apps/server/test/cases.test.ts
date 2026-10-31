@@ -340,8 +340,8 @@ describe('collaboration cases', () => {
       await post(env, chairman, `${base}/verify`, { mode: 'manual', passed: true, criterion: '到货确认', note: '采购单到货签收记录' });
       env.advance(5);
       await env.bridge('/api/bridge/events', { domain: 'supply', type: 'stockout_risk', channel: 'replay', title: '线束03 缺料风险', summary: '又一次缺料', payload: { materialCode: 'M-10003', materialName: '线束03', causes: ['缺料待料'] } });
-      expect((await env.get(base, chairman)).body.summary.needsReview).toBe(true);
       expect((await post(env, chairman, `${base}/lesson`, { conditions: '日耗稳定', conclusion: 'effective' })).status).toBe(409);
+      expect((await env.get(base, chairman)).body.summary.needsReview).toBe(true);
     } finally { env.deps.db.close(); }
   });
 
@@ -399,6 +399,55 @@ describe('collaboration cases', () => {
       expect(used.body.summary.status).toBe('pending');
       expect(used.body.entries.filter((e: any) => e.kind === 'verification')).toHaveLength(0);
       expect((await post(env, chairman, `/api/cases/${other}/references`, { lessonId: offered.id })).status).toBe(409);
+
+      const prompts: string[] = [];
+      env.deps.provider = { mode: 'llm', model: 'test-double', async complete(messages) {
+        prompts.push(messages.map((m) => m.content).join('\n'));
+        return JSON.stringify({ title: '经验核查', answer: '请核查适用条件', facts: [], pending: [], suggestions: [], actions: [] });
+      } };
+      const ask = (agentId: string) => post(env, chairman, `/api/cases/${other}/ask`, { agentId, question: '请结合已引用经验判断本事项下一步。' });
+      expect((await ask('executive.briefing')).status).toBe(200);
+      expect(prompts.at(-1)).toContain(offered.measure);
+      expect(prompts.at(-1)).toContain(offered.conditions);
+      expect(prompts.at(-1)).toContain('不能代替本次验证');
+      expect((await ask('logistics.agv')).status).toBe(200);
+      expect(prompts.at(-1)).not.toContain(offered.conditions);
+
+      // No visit to the source case: a recurrence must invalidate recommendation, reference and prompt immediately.
+      env.advance(5);
+      await env.bridge('/api/bridge/events', { domain: 'supply', type: 'stockout_risk', channel: 'replay', title: '线束03 缺料风险', summary: '验证后再次报告缺料', payload: { materialCode: 'M-10003', materialName: '线束03', causes: ['缺料待料'] } });
+      expect((await post(env, chairman, `/api/cases/${unrelated}/references`, { lessonId: offered.id })).status).toBe(409);
+      const invalid = (await env.get(`/api/cases/${other}`, chairman)).body;
+      expect(invalid.similarLessons.some((l: any) => l.id === offered.id)).toBe(false);
+      expect(invalid.entries.find((e: any) => e.kind === 'reference').data.valid).toBe(false);
+      expect((await ask('executive.briefing')).status).toBe(200);
+      expect(prompts.at(-1)).not.toContain(offered.conditions);
+
+      // A different measure in a later round gets its own lesson; the old verification never becomes valid again.
+      await post(env, chairman, `${base}/reopen`, {});
+      env.advance(1);
+      const changed = await post(env, chairman, `${base}/actions`, { title: '更换供货渠道并重新验收', domain: 'supply' });
+      const nextAction = changed.body.entries.filter((e: any) => e.kind === 'action').at(-1);
+      await post(env, chairman, `${base}/receipts`, { actionEntryId: nextAction.id, note: '新渠道验收完成（模拟）', simulated: true });
+      await post(env, chairman, `${base}/submit`, {});
+      const reverified = await post(env, chairman, `${base}/verify`, { mode: 'manual', passed: true, criterion: '新供货渠道已验收', note: '新渠道模拟验收单' });
+      expect(reverified.body.lesson).toBeNull();
+      expect((await env.get(`/api/cases/${other}`, chairman)).body.similarLessons.some((l: any) => l.id === offered.id)).toBe(false);
+      expect((await post(env, chairman, `/api/cases/${other}/references`, { lessonId: offered.id })).status).toBe(409);
+      const replacement = await post(env, chairman, `${base}/lesson`, { conditions: '新渠道已通过验收', conclusion: 'effective' });
+      expect(replacement.status).toBe(200);
+      expect(replacement.body.lesson.id).not.toBe(offered.id);
+      expect(replacement.body.lesson.verification.entryId).not.toBe(offered.verification.entryId);
+      expect(replacement.body.lesson.verification.round).toBe(2);
+      expect(replacement.body.lesson.measure).toBe(nextAction.title);
+      expect((await post(env, chairman, `${base}/lesson`, { conditions: '新渠道已通过验收', conclusion: 'effective' })).status).toBe(409);
+      const nextReference = await post(env, chairman, `/api/cases/${other}/references`, { lessonId: replacement.body.lesson.id });
+      expect(nextReference.status).toBe(200);
+      expect(nextReference.body.entries.filter((e: any) => e.kind === 'reference')).toHaveLength(2);
+      expect(nextReference.body.entries.find((e: any) => e.data.lessonId === offered.id).data.valid).toBe(false);
+      expect((await ask('executive.briefing')).status).toBe(200);
+      expect(prompts.at(-1)).toContain('新渠道已通过验收');
+      expect(prompts.at(-1)).not.toContain(offered.conditions);
     } finally { env.deps.db.close(); }
   });
 });
