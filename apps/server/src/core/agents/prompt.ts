@@ -45,6 +45,37 @@ const OUTPUT_SPEC = `只输出一个 JSON 对象，不要输出其他内容，�
 已列出的事实、待核项和行动项系统会原样展示，不要改写后重复；没有可补充的就给空数组。
 系统生成的表格会在右侧单独展示，正文引用关键数字即可，不要重画整张表。`;
 
+/**
+ * The "answer" field of a JSON object still being generated, decoded as far as it goes, so a reply can be shown
+ * while the model writes it. Reasoning blocks before the JSON are skipped.
+ */
+export function partialAnswer(raw: string): string {
+  const text = raw.includes('<think>') ? (raw.split('</think>')[1] ?? '') : raw;
+  const start = text.match(/"answer"\s*:\s*"/);
+  if (!start || start.index === undefined) return '';
+  let out = '';
+  for (let i = start.index + start[0].length; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '"') break;
+    if (ch !== '\\') {
+      out += ch;
+      continue;
+    }
+    const next = text[i + 1];
+    if (next === undefined) break;
+    if (next === 'u') {
+      const hex = text.slice(i + 2, i + 6);
+      if (hex.length < 4) break;
+      out += String.fromCharCode(parseInt(hex, 16));
+      i += 5;
+      continue;
+    }
+    out += ({ n: '\n', t: '\t', r: '', b: '', f: '' } as Record<string, string>)[next] ?? next;
+    i++;
+  }
+  return out;
+}
+
 export function renderBlocks(context: AgentContext): string {
   return context.blocks
     .map((block) => [`【${block.title}】`, ...block.lines.map((line) => `- ${line}`)].join('\n'))
@@ -66,6 +97,8 @@ export function buildMessages(input: {
     '规则：只依据下面提供的业务数据、本对话已确认的信息和对话历史作答，不要编造数字、日期、供应商、人名或原因；数据里没有的信息写进 pending，并在正文里直说「数据中没有」。',
     '业务数据里写着「待…」或为空的内容（例如「D4：待失效分析」），正文照实写，不得自行补全；业务数据里已经给出的数字直接引用，不要说「缺少」。',
     '问到数据里没有的物料、供应商或制度时，明确说「未收录」，不要拿别的条目顶替。',
+    '业务数据只说两件事「关联」时，不要写成因果（导致、拖累、造成、压低），也不要自行估算各自贡献；已发生的损失（如近 7 日停机分钟）与预计的风险（如预计断料日）分开说，引用数字时带上口径（近 7 日、全厂、某条线）。',
+    '只引用业务数据里出现的制度条款号；数据没给条款时不要写条款号，可写「制度依据待核」。数值为空、0 或无穷大的指标不能作为排序或结论的依据。',
     '事实、待核信息、建议要分开。',
     OUTPUT_SPEC,
   ].join('\n\n');

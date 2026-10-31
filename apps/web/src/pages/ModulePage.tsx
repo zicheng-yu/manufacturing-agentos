@@ -6,7 +6,7 @@ import { useApi } from '../api.ts';
 import { DataTable } from '../components/DataTable.tsx';
 import { EventRow, SignalDrawer, SignalList, SituationCard, useFlash } from '../components/Live.tsx';
 import { useLive, useSession } from '../session.tsx';
-import { Card, DOMAIN_ICONS, Empty, Photo, Section, Spinner } from '../ui.tsx';
+import { Card, DOMAIN_ICONS, Empty, Photo, reading, Section, Spinner } from '../ui.tsx';
 const HrWorkbench = lazy(() => import('./hr/HrWorkbench.tsx').then((m) => ({ default: m.HrWorkbench })));
 
 export function ModulePage() {
@@ -68,12 +68,12 @@ export function ModulePage() {
       <Section no="01" title="态势与指标" en="SITUATION">
         <div className="grid gap-4 lg:grid-cols-3">
           <SituationCard situation={situation} flashing={flashing(domain)} signalCount={signals.data?.length} />
-          <dl className="grid grid-cols-2 gap-3 lg:col-span-2 lg:grid-cols-4">
+          <dl className="grid content-start grid-cols-2 gap-3 lg:col-span-2 lg:grid-cols-4">
             {metrics.map((m) => (
-              <div key={m.label} className="flex flex-col justify-between gap-2 rounded-[10px] border border-slate-200 bg-white p-4">
+              <div key={m.label} className="flex min-h-28 flex-col justify-between gap-2 rounded-[10px] border border-slate-200 bg-white p-4">
                 <dt className="text-xs text-slate-500">{m.label}</dt>
                 <dd className="num text-[34px] leading-none font-bold text-slate-900">
-                  {m.value}
+                  {reading(m.value)}
                   {m.unit && <span className="ml-1 text-sm font-normal text-slate-500">{m.unit}</span>}
                 </dd>
               </div>

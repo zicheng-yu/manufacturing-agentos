@@ -3,7 +3,7 @@ import { ChevronRight, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { api } from '../api.ts';
-import { CHANNEL_LABELS, cx, DOMAIN_ICONS, DomainTag, Empty, LevelPill, SeverityBadge, Spinner, timeAgo, formatTime } from '../ui.tsx';
+import { CHANNEL_LABELS, cx, reading, DOMAIN_ICONS, DomainTag, Empty, LevelPill, SeverityBadge, Spinner, timeAgo, formatTime } from '../ui.tsx';
 
 /** Remember which keys changed recently so the UI can highlight them. */
 export function useFlash(ms = 2600) {
@@ -33,8 +33,8 @@ export function useFlash(ms = 2600) {
 /** A metric set like a gauge reading: condensed figure, small unit. */
 function Reading({ value, unit, bad }: { value: string | number; unit?: string; bad: boolean }) {
   return (
-    <dd className={cx('num leading-none font-bold whitespace-nowrap', String(value).length > 6 ? 'text-[22px]' : 'text-[30px]', bad ? 'text-red-700' : 'text-slate-900')}>
-      {value}
+    <dd className={cx('num leading-none font-bold whitespace-nowrap', reading(value).length > 6 ? 'text-[22px]' : 'text-[30px]', bad ? 'text-red-700' : 'text-slate-900')}>
+      {reading(value)}
       {unit && <span className="ml-0.5 text-sm font-normal text-slate-500">{unit}</span>}
     </dd>
   );

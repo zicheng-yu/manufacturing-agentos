@@ -4,7 +4,7 @@ import { runTurn, deleteTurn } from '../src/core/agents/runtime.ts';
 import { ingestEvent, redactEvent } from '../src/core/events.ts';
 import { listMemory, listTasks } from '../src/core/memory.ts';
 import { listSignals } from '../src/core/signals.ts';
-import { STORYLINE } from '../src/seed/storyline.ts';
+import { STORYLINE, stepBody } from '../src/seed/storyline.ts';
 import { setup } from './helpers.ts';
 
 describe('accounts and permissions', () => {
@@ -277,7 +277,7 @@ describe('demo storyline', () => {
   it('ripples from one station into a chairman briefing across all four modules', async () => {
     const env = setup();
     for (const step of STORYLINE) {
-      const res = await env.bridge(step.path, step.body);
+      const res = await env.bridge(step.path, stepBody(step, env.deps.clock()));
       expect(res.status, step.label).toBe(200);
       env.advance(0.5);
     }

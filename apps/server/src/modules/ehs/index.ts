@@ -71,25 +71,30 @@ const safetyAgent: AgentDefinition = {
   starters: ['有哪些高风险违规还没闭环？', '待复核的有多少', '哪个点位违规最多'],
   context({ db, now }) {
     const s = safetySummary(db);
+    const open = [...s.openHighRisk].sort((x, y) => y.ts.localeCompare(x.ts));
+    const toReview = open.filter((e) => e.status === '待复核');
+    const toFix = open.filter((e) => e.status !== '待复核');
+    const hotspots = [...new Set(toFix.map((e) => e.camera))].slice(0, 3);
     return {
-      headline: `${s.openHighRisk.length} 起高风险违规未闭环，${s.pendingReview.length} 条待复核`,
+      headline: `${open.length} 起高风险违规未闭环：${toReview.length} 起待复核，${toFix.length} 起已确认、整改未闭环`,
       blocks: [
-        { title: '违规类型（剔除误报）', lines: s.byType.map((t) => `${t.type}：${t.count} 起，未闭环 ${t.open} 起${HIGH_RISK.includes(t.type) ? '（高风险）' : ''}`) },
+        { title: '状态口径', lines: ['未闭环 = 「待复核」（识别后尚未人工确认）+「已确认整改」（确认是违规、整改尚未闭环）；「已闭环」「已申诉撤销」和误报不计入'] },
+        { title: '高风险未闭环（按类型）', lines: s.byType.filter((t) => HIGH_RISK.includes(t.type)).map((t) => `${t.type}：未闭环 ${t.open} 起（共 ${t.count} 起）`) },
+        { title: `高风险未闭环（最近 ${Math.min(10, open.length)} 条，全部 ${open.length} 条见表格）`, lines: open.length ? open.slice(0, 10).map((e) => `${e.id} ${e.ts} ${e.camera} ${e.type}（${e.status}）`) : ['无'] },
         { title: '高发点位', lines: s.byCamera.slice(0, 5).map((c) => `${c.camera}：${c.count} 起`) },
-        { title: '高风险未闭环', lines: s.openHighRisk.length ? s.openHighRisk.slice(0, 10).map((e) => `${e.id} ${e.ts} ${e.camera} ${e.type}（${e.status}，置信度 ${e.confidence}）`) : ['无'] },
-        { title: '识别质量', lines: [`共 ${s.total} 条识别，误报率 ${percent(s.falseAlarmRate, 1)}；已闭环平均用时 ${s.avgClosureHours ?? '—'} 小时`] },
+        { title: '识别质量', lines: [`共 ${s.total} 条识别，误报率 ${percent(s.falseAlarmRate, 1)}；全部类型待复核 ${s.pendingReview.length} 条（其中高风险 ${toReview.length} 条）`] },
+        { title: '依据', lines: ['官方素材包的四份制度中没有安全生产专章；动火、LOTO 的停工与闭环时限按公司 EHS 制度核定'] },
       ],
-      facts: [`高风险违规未闭环 ${s.openHighRisk.length} 起`, `待复核 ${s.pendingReview.length} 条`, `误报率 ${percent(s.falseAlarmRate, 1)}`],
-      pending: ['待复核事件需安环人员现场或回放确认'],
-      suggestions: ['高风险违规当班复核并停工整改', `对 ${s.byCamera[0]?.camera ?? '高发点位'} 加强现场巡查与班前安全交底`],
-      actions: s.openHighRisk.length ? [{ title: `复核并整改 ${s.openHighRisk.length} 起高风险违规`, owner: '安环经理', due: isoDate(addDays(now, 1)) }] : [],
+      facts: [`高风险违规未闭环 ${open.length} 起：待复核 ${toReview.length}，已确认、整改未闭环 ${toFix.length}`, `全部类型待复核 ${s.pendingReview.length} 条`, `误报率 ${percent(s.falseAlarmRate, 1)}`],
+      pending: ['待复核事件需安环人员现场或回放确认', '闭环时限的制度依据待核（素材包无安全生产制度）'],
+      suggestions: ['动火、LOTO 类违规所在作业立即停工整改，其余高风险违规当班纠正', `对 ${hotspots.join('、') || '高发点位'} 加强现场巡查与班前安全交底`],
+      actions: [
+        ...(toReview.length ? [{ title: `复核 ${toReview.length} 起高风险待复核违规（${toReview.slice(0, 3).map((e) => e.id).join('、')} 等）`, owner: '安环经理', due: isoDate(addDays(now, 1)) }] : []),
+        ...(toFix.length ? [{ title: `${toFix.length} 起已确认高风险违规完成整改并回传证据（重点 ${hotspots.join('、')}）`, owner: '车间主任，安环经理验收', due: isoDate(addDays(now, 2)) }] : []),
+      ],
       artifacts: [
-        {
-          kind: 'table',
-          title: '安全违规（剔除误报）',
-          columns: ['违规类型', '次数', '未闭环', '风险'],
-          rows: s.byType.map((t) => [t.type, t.count, t.open, HIGH_RISK.includes(t.type) ? '高' : '一般']),
-        },
+        { kind: 'table', title: `高风险违规未闭环（${open.length} 起）`, columns: ['编号', '时间', '点位', '类型', '状态', '置信度'], rows: open.map((e) => [e.id, e.ts, e.camera, e.type, e.status, e.confidence]) },
+        { kind: 'table', title: '安全违规（剔除误报）', columns: ['违规类型', '次数', '未闭环', '风险'], rows: s.byType.map((t) => [t.type, t.count, t.open, HIGH_RISK.includes(t.type) ? '高' : '一般']) },
       ],
     };
   },

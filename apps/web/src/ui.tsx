@@ -16,6 +16,11 @@ export function scopeLabel(scope: Domain | 'executive'): string {
   return scope === 'executive' ? '经营决策' : DOMAIN_LABELS[scope];
 }
 
+/** Readings: thousands separators for big counts, strings as they are. */
+export function reading(value: string | number): string {
+  return typeof value === 'number' && Math.abs(value) >= 10000 ? value.toLocaleString('en-US') : String(value);
+}
+
 export function cx(...classes: (string | false | null | undefined)[]): string {
   return classes.filter(Boolean).join(' ');
 }

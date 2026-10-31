@@ -89,7 +89,7 @@ npm run typecheck
 
 钢构工业风：钢蓝墨 `#0E1726` 侧栏与表头、水泥灰底、工业蓝 `#1D5BD6` 主操作，告警红 / 关注琥珀靠明暗区分；读数用 Barlow Condensed，编号与时间用 JetBrains Mono（随包自带，不依赖外网字体）；分区标题统一用 `Section`（编号 + 中文 + 英文标签），告警卡片顶边是警示斜纹。色值在 `apps/web/src/index.css` 的 `@theme` 里。
 
-照片位：驾驶舱横幅读 `apps/web/public/photos/hero.jpg`，登录页读 `login.jpg`，模块页读 `<模块 id>.jpg`（如 `production.jpg`）。文件不存在时显示斜纹占位，照片上的文字都压在深色底上，换任何照片都可读。只放有使用授权的现场实拍，并在 PR 里写明来源。
+照片位：驾驶舱横幅读 `apps/web/public/photos/hero.jpg`，登录页读 `login.jpg`，模块页读 `<模块 id>.jpg`（如 `production.jpg`）。文件不存在时显示斜纹占位，照片上的文字都压在深色底上，换任何照片都可读。现有照片取自达智汇所属集团官网的公开图片，画面中的品牌标识已模糊处理；站点上不出现集团名称。替换照片时同样处理标识，并在 PR 里写明来源。
 
 ## PR 约定
 
