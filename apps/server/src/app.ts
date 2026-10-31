@@ -194,6 +194,7 @@ export function createApp(deps: Deps): Hono<AppEnv> {
       domains: visibleDomains(account, c.req.query('domain')),
       status,
       limit: Number(c.req.query('limit') ?? 100),
+      sort: c.req.query('sort') === 'severity' ? 'severity' : 'recent',
     });
     return c.json(events.map((e) => redactEvent(deps, e, account.role)));
   });

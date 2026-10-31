@@ -157,7 +157,7 @@ export function ingestEvent(deps: Deps, input: EventInput): { event: AgentOSEven
 
 export function listEvents(
   deps: Deps,
-  filter: { domains: Domain[]; status?: EventStatus | 'unresolved'; limit?: number },
+  filter: { domains: Domain[]; status?: EventStatus | 'unresolved'; limit?: number; sort?: 'recent' | 'severity' },
 ): AgentOSEvent[] {
   if (filter.domains.length === 0) return [];
   const placeholders = filter.domains.map(() => '?').join(',');
@@ -168,7 +168,8 @@ export function listEvents(
     sql += ' AND status = ?';
     params.push(filter.status);
   }
-  sql += ` ORDER BY last_seen_at DESC LIMIT ${Math.min(filter.limit ?? 50, 500)}`;
+  const priority = filter.sort === 'severity' ? "CASE severity WHEN 'critical' THEN 2 WHEN 'warn' THEN 1 ELSE 0 END DESC, " : '';
+  sql += ` ORDER BY ${priority}last_seen_at DESC, id DESC LIMIT ${Math.min(filter.limit ?? 50, 500)}`;
   return (deps.db.prepare(sql).all(...params) as Row[]).map((row) => rowToEvent(deps, row));
 }
 

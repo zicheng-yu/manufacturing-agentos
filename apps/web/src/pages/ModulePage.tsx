@@ -4,7 +4,7 @@ import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { useApi } from '../api.ts';
 import { DataTable } from '../components/DataTable.tsx';
-import { EventRow, SignalDrawer, SignalList, SituationCard, useFlash } from '../components/Live.tsx';
+import { EventRow, SignalDrawer, SignalList, SituationCard, SituationSignalsDrawer, useFlash } from '../components/Live.tsx';
 import { useLive, useSession } from '../session.tsx';
 import { Card, DOMAIN_ICONS, Empty, Photo, reading, Section, Spinner } from '../ui.tsx';
 const HrWorkbench = lazy(() => import('./hr/HrWorkbench.tsx').then((m) => ({ default: m.HrWorkbench })));
@@ -17,6 +17,8 @@ export function ModulePage() {
   const events = useApi<AgentOSEvent[]>(`/api/events?domain=${domain}&limit=30`);
   const { flashing, flash } = useFlash();
   const [signalId, setSignalId] = useState<string | null>(null);
+  const [showSignals, setShowSignals] = useState(false);
+  useEffect(() => { setSignalId(null); setShowSignals(false); }, [domain]);
   const timer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(timer.current), []);
 
@@ -67,7 +69,7 @@ export function ModulePage() {
 
       <Section no="01" title="态势与指标" en="SITUATION">
         <div className="grid gap-4 lg:grid-cols-3">
-          <SituationCard situation={situation} flashing={flashing(domain)} signalCount={signals.data?.length} />
+          <SituationCard situation={situation} flashing={flashing(domain)} signalCount={signals.data?.length} onOpen={() => setShowSignals(true)} />
           <dl className="grid content-start grid-cols-2 gap-3 lg:col-span-2 lg:grid-cols-4">
             {metrics.map((m) => (
               <div key={m.label} className="flex min-h-28 flex-col justify-between gap-2 rounded-[10px] border border-slate-200 bg-white p-4">
@@ -114,6 +116,7 @@ export function ModulePage() {
         </Section>
       </div>
       <SignalDrawer signalId={signalId} onClose={() => setSignalId(null)} />
+      <SituationSignalsDrawer open={showSignals} title={module.name} signals={signals.data ?? []} loading={signals.loading} error={signals.error} onClose={() => setShowSignals(false)} onOpen={id => { setShowSignals(false); setSignalId(id); }} />
     </div>
   );
 }
