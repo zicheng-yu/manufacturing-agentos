@@ -40,10 +40,10 @@ function Reading({ value, unit, bad }: { value: string | number; unit?: string; 
   );
 }
 
-export function SituationCard({ situation, flashing, signalCount, onOpen }: { situation: Situation; flashing?: boolean; signalCount?: number; onOpen?: () => void }) {
+export function SituationCard({ situation, flashing, signalCount, linkToModule = true }: { situation: Situation; flashing?: boolean; signalCount?: number; linkToModule?: boolean }) {
   const Icon = DOMAIN_ICONS[situation.domain];
   const alert = situation.level === 'alert';
-  const className = cx('group flex w-full cursor-pointer flex-col overflow-hidden rounded-xl border border-slate-200 bg-white text-left transition hover:border-slate-300 hover:shadow-md focus-visible:outline-2 focus-visible:outline-brand-600', flashing && 'flash');
+  const className = cx('flex w-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white text-left', linkToModule && 'group cursor-pointer transition hover:border-slate-300 hover:shadow-md focus-visible:outline-2 focus-visible:outline-brand-600', flashing && 'flash');
   const content = <>
       {alert ? <div className="hazard h-1.5" /> : <div className={cx('h-1.5', situation.level === 'watch' ? 'bg-watch' : 'bg-slate-200')} />}
       <div className="flex flex-1 flex-col gap-3.5 p-[18px]">
@@ -65,13 +65,13 @@ export function SituationCard({ situation, flashing, signalCount, onOpen }: { si
         </dl>
         <div className="mt-auto flex items-center justify-between text-xs text-slate-600 group-hover:text-brand-600">
           <span>{signalCount === undefined ? '活跃信号加载中' : signalCount ? `${signalCount} 条活跃信号` : '无活跃信号'}</span>
-          <span className="inline-flex items-center gap-1">{onOpen ? '查看信号' : '查看模块'}<ChevronRight className="size-3.5" /></span>
+          {linkToModule && <span className="inline-flex items-center gap-1">查看模块<ChevronRight className="size-3.5" /></span>}
         </div>
       </div>
     </>;
-  return onOpen
-    ? <button type="button" onClick={onOpen} aria-label={`查看${situation.title}活跃信号`} className={className}>{content}</button>
-    : <Link to={`/m/${situation.domain}`} aria-label={`查看${situation.title}模块`} className={className}>{content}</Link>;
+  return linkToModule
+    ? <Link to={`/m/${situation.domain}`} aria-label={`查看${situation.title}模块`} className={className}>{content}</Link>
+    : <div className={className}>{content}</div>;
 }
 
 export function EventRow({
@@ -153,18 +153,6 @@ function Drawer({ label, onClose, children }: { label: string; onClose: () => vo
   return <dialog ref={dialog} aria-label={label} onCancel={onClose} onClick={e => { if (e.target === e.currentTarget) onClose(); }} className="fixed inset-y-0 right-0 left-auto m-0 h-dvh max-h-none w-full max-w-md border-0 bg-white p-0 shadow-xl backdrop:bg-slate-900/30">
     <aside className="h-full overflow-y-auto">{children}</aside>
   </dialog>;
-}
-
-export function SituationSignalsDrawer({ open, title, signals, loading, error, onClose, onOpen }: { open: boolean; title: string; signals: Signal[]; loading: boolean; error: string | null; onClose: () => void; onOpen: (id: string) => void }) {
-  if (!open) return null;
-  return <Drawer label={`${title}活跃信号`} onClose={onClose}>
-    <header className="flex items-center justify-between gap-3 border-b border-slate-100 p-4">
-      <h2 className="font-semibold">{title} · 活跃信号</h2>
-      <button autoFocus aria-label="关闭活跃信号" onClick={onClose} className="rounded p-1 text-slate-500 hover:bg-slate-100"><X className="size-4" /></button>
-    </header>
-    <p className="px-4 py-3 text-xs text-slate-500">按紧急程度排列，点击信号查看详情与来源事件。</p>
-    {error ? <p role="alert" className="p-4 text-sm text-red-600">{error}</p> : loading ? <Spinner className="m-4 text-slate-400" /> : <SignalList signals={signals} onOpen={onOpen} />}
-  </Drawer>;
 }
 
 /** Side drawer: a signal and the events it was built from. */
