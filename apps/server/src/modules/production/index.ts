@@ -126,7 +126,7 @@ export const productionModule: DomainModule = {
             {
               key: 'plant',
               title: `全厂 OEE ${plant}%，低于目标 ${OEE_TARGET}%`,
-              summary: `近 7 日全厂 OEE ${plant}%；最低 ${[...lines].sort((a, b) => a.oee - b.oee)[0]?.line}；最大损失「${losses[0]?.reason}」${Math.round(losses[0]?.downtimeMin ?? 0)} 分钟`,
+              summary: `近 7 日全厂 OEE ${plant}%；最低 ${[...lines].sort((a, b) => a.oee - b.oee)[0]?.line}；以「${losses[0]?.reason}」为主因的线日累计停机 ${Math.round(losses[0]?.downtimeMin ?? 0)} 分钟（非单一原因精确损失）`,
               payload: {
                 oee: plant,
                 target: OEE_TARGET,
@@ -167,7 +167,7 @@ export const productionModule: DomainModule = {
       const alarm = recent.filter((r) => r.vibration! >= VIBRATION_ALARM);
       if (alarm.length === 0 && !warningTrigger(recent)) return [];
       const peak = Math.max(...warn.map((r) => r.vibration!));
-      const history = h.precursors.length ? `；历史上该设备进入关注区后约 ${h.precursors[0].hoursAhead} 小时发生「${h.precursors[0].repair.symptom}」` : '';
+      const history = h.precursors.length ? `；历史上该设备触发预警规则后约 ${h.precursors[0].hoursAhead} 小时记录「${h.precursors[0].repair.symptom}」（非未来故障保证）` : '';
       return [{
         key: h.equipment.id,
         station: h.equipment.id,

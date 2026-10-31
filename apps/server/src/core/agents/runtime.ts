@@ -9,9 +9,11 @@ import { evaluateDomain } from '../signals.ts';
 import { isoDate, newId, normalizeText, unique } from '../util.ts';
 import { buildMessages, offlineDraft, parseModelOutput, partialAnswer, type DraftResult } from './prompt.ts';
 
+import { resolveReference } from './handoff.ts';
+
 const HISTORY_TURNS = 6;
-const MEMORY_RECORDS = 20;
 const MODEL_ACTIONS = 3;
+const MEMORY_RECORDS = 20;
 
 const normalize = normalizeText;
 
@@ -68,7 +70,7 @@ export function listTurns(deps: Deps, conversationId: string): Turn[] {
 /** Run one question through an agent: analysis → model (or offline) → persist memory, tasks and events. */
 export async function runTurn(
   deps: Deps,
-  input: { account: Account; agentId: string; conversationId?: string | null; question: string; onAnswer?: (text: string) => void },
+  input: { account: Account; agentId: string; conversationId?: string | null; question: string; sourceTurnId?: string | null; sourceFindingId?: string | null; onAnswer?: (text: string) => void },
 ): Promise<{ conversation: Conversation; turn: Turn }> {
   const { account } = input;
   const agent = deps.registry.agent(input.agentId);
@@ -77,24 +79,43 @@ export async function runTurn(
   if (!question) throw new HTTPException(400, { message: '问题不能为空' });
 
   const now = deps.clock();
+  if (input.sourceFindingId && !input.sourceTurnId) throw new HTTPException(400, { message: '数据发现需要来源问答' });
+  if (input.conversationId && input.sourceTurnId) throw new HTTPException(400, { message: '请在新对话中接续另一位助手' });
+  let reference = input.sourceTurnId ? await resolveReference(deps, account, input.sourceTurnId, input.sourceFindingId) : null;
+  let referenceNotice: string | null = null;
   let conversation: Conversation;
   if (input.conversationId) {
     conversation = getConversation(deps, account, input.conversationId);
     if (conversation.agentId !== agent.id) throw new HTTPException(400, { message: '对话不属于该智能体' });
+    const origin = deps.db.prepare('SELECT reference_turn_id, reference_finding_id FROM conversations WHERE id = ?').get(conversation.id) as Row;
+    if (origin.reference_turn_id) {
+      try { reference = await resolveReference(deps, account, String(origin.reference_turn_id), origin.reference_finding_id as string | null); }
+      catch { referenceNotice = '接续来源已过期、删除或不可访问，本轮仅依据当前业务数据；请重新运行来源助手。'; }
+    }
   } else {
     const id = newId('CNV');
     deps.db
       .prepare('INSERT INTO conversations (id, account_id, agent_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
       .run(id, account.id, agent.id, question.slice(0, 24), now.toISOString(), now.toISOString());
     conversation = getConversation(deps, account, id);
+    if (input.sourceTurnId) deps.db.prepare('UPDATE conversations SET reference_turn_id = ?, reference_finding_id = ? WHERE id = ?').run(input.sourceTurnId, input.sourceFindingId ?? null, id);
   }
 
   const started = Date.now();
   const earlier = listTurns(deps, conversation.id).slice(-HISTORY_TURNS);
   const context = await agent.context({ db: deps.db, now, input: question, history: earlier.map((t) => t.input), account, deps });
+  if (reference) {
+    context.blocks.unshift({ title: '从另一助手接续的分析（不是已执行结果）', lines: [reference.reference.summary] });
+    if (reference.finding) {
+      const evidence = reference.finding.evidence;
+      context.blocks.push({ title: `接续发现的计算证据：${evidence.title}`, lines: [evidence.columns.join(' | '), ...evidence.rows.map(row => row.join(' | '))] });
+      context.artifacts = [evidence, ...(context.artifacts ?? [])];
+    }
+  }
+  if (referenceNotice) context.pending = [...(context.pending ?? []), referenceNotice];
   const history = earlier.map((t) => ({ input: t.input, answer: t.result.answer }));
   // Only this conversation's working memory: other conversations' figures go stale and leak into answers.
-  const memory = listMemoryForTurns(deps.db, earlier.map((t) => t.id)).slice(-MEMORY_RECORDS);
+  const memory = listMemoryForTurns(deps.db, earlier.filter(t => now.getTime() - Date.parse(t.createdAt) <= 30 * 60_000).map((t) => t.id)).slice(-MEMORY_RECORDS);
 
   let mode: Turn['mode'] = deps.provider.mode;
   let draft: DraftResult;
@@ -135,13 +156,15 @@ export async function runTurn(
     title: draft.title || context.headline || agent.name,
     answer: draft.answer,
     // Only computed/verified context can establish facts or execution tasks, including when it is empty.
-    facts: (context.facts ?? []).slice(0, 8),
+    facts: (context.facts ?? []).slice(0, 20),
     pending: mergeItems(context.pending, [...draft.pending, ...draft.facts.map((f) => `模型待核线索（未经业务验证）：${f}`)], 6),
     suggestions: mergeItems(context.suggestions, [...draft.suggestions, ...draft.actions.slice(0, MODEL_ACTIONS).map((a) => `模型建议（未建待办）：${a.title}`)], 6),
     actions: context.actions ?? [],
     artifacts: context.artifacts ?? [],
     eventIds: [],
     ...(context.policy ? { policy: context.policy } : {}),
+    ...(context.discoveries ? { discoveries: context.discoveries } : {}),
+    ...(reference ? { reference: reference.reference } : {}),
   };
 
   for (const event of context.events ?? []) {

@@ -1,9 +1,9 @@
 import { DOMAINS, type AgentInfo, type Conversation, type Turn } from '@agentos/shared';
 import { MessageSquarePlus, SendHorizontal, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { Link, useNavigate, useParams } from 'react-router';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { api, ApiError, postStream, useApi } from '../api.ts';
-import { Actions, Answer, Artifacts, Evidence, PolicySources } from '../components/ResultView.tsx';
+import { Actions, Answer, Artifacts, Evidence, PolicySources, DiscoveryCards, ReferenceSource } from '../components/ResultView.tsx';
 import { useSession } from '../session.tsx';
 import { cx, DOMAIN_ICONS, Empty, scopeLabel, Spinner, timeAgo } from '../ui.tsx';
 
@@ -29,6 +29,9 @@ function Thinking() {
 }
 
 function TurnView({ turn, onDelete }: { turn: Turn; onDelete: () => void }) {
+  const { catalog } = useSession();
+  const choices = (catalog?.agents ?? []).filter(a => a.id !== turn.agentId && !a.companyService);
+  const [nextAgent, setNextAgent] = useState('');
   return (
     <div className="space-y-3">
       <div className="flex justify-end">
@@ -51,10 +54,16 @@ function TurnView({ turn, onDelete }: { turn: Turn; onDelete: () => void }) {
           </div>
         </div>
         <Answer markdown={turn.result.answer} />
+        <ReferenceSource result={turn.result} />
+        <DiscoveryCards turn={turn} />
         <PolicySources result={turn.result} />
         <Artifacts result={turn.result} />
         <Evidence result={turn.result} />
         <Actions result={turn.result} />
+        {!turn.result.policy && choices.length > 0 && <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3 text-xs">
+          <label>接续到 <select aria-label="接续目标助手" className="ml-1 rounded border p-1" value={nextAgent} onChange={e => setNextAgent(e.target.value)}><option value="">选择助手</option>{choices.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></label>
+          {nextAgent && <Link className="text-brand-700 hover:underline" to={`/agents/${nextAgent}?${new URLSearchParams({ sourceTurnId: turn.id, q: `请结合上一助手的计算结论继续分析：${turn.input}` })}`}>带上计算来源继续 →</Link>}
+        </div>}
         {turn.result.eventIds.length > 0 && (turn.result.policy ? (
           <p className="text-xs text-slate-500">已登记人工服务请求，可在<Link to="/employee-service" className="mx-1 text-brand-600 hover:underline">公司制度助手</Link>查看 HR 答复。</p>
         ) : (
@@ -75,6 +84,10 @@ export function Agents() {
   const { catalog } = useSession();
   const navigate = useNavigate();
   const params = useParams();
+  const [search] = useSearchParams();
+  const incomingQuestion = search.get('q') ?? '';
+  const sourceTurnId = search.get('sourceTurnId');
+  const sourceFindingId = search.get('sourceFindingId');
   const agents = catalog?.agents ?? [];
   const agent: AgentInfo | undefined = agents.find((a) => a.id === params.agentId) ?? agents[0];
   const conversationId = params.conversationId ?? null;
@@ -89,6 +102,7 @@ export function Agents() {
   const bottom = useRef<HTMLDivElement>(null);
 
   const turns = conversationId ? (detail.data?.turns ?? []) : [];
+  useEffect(() => { setDraft(incomingQuestion); }, [incomingQuestion, agent?.id]);
 
   useEffect(() => {
     setError(null);
@@ -113,7 +127,7 @@ export function Agents() {
     setError(null);
     try {
       const done: { result?: { conversation: Conversation; turn: Turn } } = {};
-      await postStream(`/api/agents/${agent.id}/turns`, { question, conversationId }, (event, data) => {
+      await postStream(`/api/agents/${agent.id}/turns`, { question, conversationId, ...(!conversationId && sourceTurnId ? { sourceTurnId, sourceFindingId } : {}) }, (event, data) => {
         if (event === 'delta') setStreamed((text) => text + data.text);
         else if (event === 'turn') done.result = data;
         else if (event === 'error') throw new ApiError(500, data.error);
@@ -209,6 +223,7 @@ export function Agents() {
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto max-w-5xl space-y-6 p-4 md:p-6">
+          {!conversationId && sourceTurnId && <p className="rounded border border-brand-200 bg-brand-50 p-3 text-sm text-brand-800">已准备接续分析。发送后会核验来源权限；数据发现会基于当前平台数据重算。</p>}
           {turns.length === 0 && !pending && (
             <div className="mx-auto max-w-xl pt-8 text-center">
               <p className="text-sm text-slate-500">直接描述情况或提问。回答会区分事实、待核信息与建议，行动项自动进入待办。</p>

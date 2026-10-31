@@ -1,4 +1,5 @@
-import type { TableArtifact } from '@agentos/shared';
+import type { Discovery, TableArtifact } from '@agentos/shared';
+import { discoveryAgent } from './discoveries.ts';
 import type { DB } from '../db.ts';
 import type { AgentDefinition } from '../core/module.ts';
 import { percent, round } from '../core/util.ts';
@@ -54,10 +55,10 @@ export function officialFindings(db: DB, now: Date): Finding[] {
   const vehicle = [...agv.byAgv].sort((a, b) => b.timeouts - a.timeouts || a.key.localeCompare(b.key))[0];
   if (vehicle) findings.push({
     id: 'agv-timeout-concentration', title: '配送超时集中度',
-    observation: `${vehicle.key} 承担 ${vehicle.tasks}/${agv.valid} 单有效任务，贡献 ${vehicle.timeouts}/${agv.timeouts} 单超时（${agv.timeouts ? percent(vehicle.timeouts, agv.timeouts) : '无超时'}）；另剔除 ${agv.invalid.length} 单起终点相同记录`,
+    observation: `${vehicle.key} 承担 ${vehicle.tasks}/${agv.valid} 单有效任务，贡献 ${vehicle.timeouts}/${agv.timeouts} 单超时（${agv.timeouts ? percent(vehicle.timeouts / agv.timeouts, 1) : '无超时'}）；另剔除 ${agv.invalid.length} 单起终点相同记录`,
     basis: `表12；${agv.window}；超时贡献按超时单数排名，同时保留各车任务量分母`,
     boundary: '任务量、路线和负载可能不同，不能直接归因为车辆故障；按时率不等于制度中的任务自动执行率',
-    table: table('超时集中度证据', ['车辆', '任务量', '超时单数', '超时率', '超时贡献'], agv.byAgv.map((r) => [r.key, r.tasks, r.timeouts, percent(r.rate, 1), agv.timeouts ? percent(r.timeouts, agv.timeouts) : '—']), SOURCE),
+    table: table('超时集中度证据', ['车辆', '任务量', '超时单数', '超时率', '超时贡献'], agv.byAgv.map((r) => [r.key, r.tasks, r.timeouts, percent(r.rate, 1), agv.timeouts ? percent(r.timeouts / agv.timeouts, 1) : '—']), SOURCE),
   });
   const aoi = aoiSummary(db);
   const high = aoi.escapes.filter((r) => r.confidence !== null && r.confidence >= 0.9);
@@ -93,17 +94,26 @@ export const insightsAgent: AgentDefinition = {
   id: 'executive.insights', module: 'executive', name: '数据发现助手', datasets: ['official'],
   description: '从平台官方素材记录重算数据发现，逐项列出样本、口径、明细与待核边界',
   instructions: '只引用本轮计算的观察；区分历史样本回看、当前状态和方案估算；不能把官方仿真样本写成真实生产效果。',
-  starters: ['平台数据还有哪些发现？', '核验提前预警的计算口径', '查库存积压与零产量用电'],
-  context({ db, now, input }) {
-    const all = officialFindings(db, now);
-    const topics: [RegExp, string][] = [[/预警|设备|故障/, 'equipment-confirmed-warning'], [/库存|资金|呆滞|积压/, 'inventory-aging'], [/用电|能耗|电费|零产量/, 'zero-output-energy'], [/AGV|物流|配送|超时/i, 'agv-timeout-concentration'], [/AOI|置信度|漏检/i, 'aoi-high-confidence-escape'], [/致命|不良|闭环|8D/i, 'fatal-closure-gap'], [/排产|延期|工单/, 'schedule-scenario']];
-    const ids = topics.filter(([pattern]) => pattern.test(input)).map(([, id]) => id);
-    const selected = ids.length ? all.filter((f) => ids.includes(f.id)) : all;
-    const headline = `从平台记录重算 ${selected.length} 项数据发现（官方仿真素材）`;
-    const blocks = selected.map((f) => ({ title: f.title, lines: [f.observation, `计算依据：${f.basis}`, `待核边界：${f.boundary}`] }));
-    // These are audited calculations, so render them directly instead of asking a model to invent extra findings.
-    return { headline, blocks, facts: selected.map((f) => `${f.title}：${f.observation}`), pending: ['来源为官方仿真素材包；所有结果按本轮平台数据重算，观察与估算均不代表实际生产收益'], actions: [],
-      preparedResponse: { mode: 'offline', answer: [headline, ...blocks.map((b) => `**${b.title}**\n${b.lines.map((l) => `- ${l}`).join('\n')}`)].join('\n\n') },
-      artifacts: [table('数据发现与口径', ['发现', '观察', '计算依据', '待核边界'], selected.map((f) => [f.title, f.observation, f.basis, f.boundary]), `${SOURCE}；可指定预警、库存、用电、AGV、AOI、闭环或排产查看明细`), ...(ids.length || /全部明细/.test(input) ? selected.map((f) => f.table) : [])] };
+  starters: ['平台数据还有哪些发现？', '核验提前预警的计算口径', '查库存积压与零产量用电', 'AOI、8D和注塑参数还有什么发现？'],
+  async context(args) {
+    const context = await discoveryAgent.context(args);
+    // Keep the unique findings already shipped on main and one public assistant/route.
+    const topics = {
+      'zero-output-energy': { domain: 'ehs', agentId: 'ehs.energy', pattern: /能耗|用电|电费|零产量/, question: '零产量用电有哪些证据，能直接当成浪费吗？' },
+      'aoi-high-confidence-escape': { domain: 'quality', agentId: 'quality.aoi', pattern: /品质|AOI|置信度|漏检/i, question: '高置信度漏检有哪些样本，低置信度复核能全部覆盖吗？' },
+      'fatal-closure-gap': { domain: 'quality', agentId: 'quality.defects', pattern: /品质|致命|不良|闭环|8D/i, question: '已立项但没有闭环的A级不良有哪些？' },
+    } as const;
+    const general = /全部|所有|还有哪些|更多|平台数据/.test(args.input) || !/故障|设备|预警|维修|排产|延期|OEE|停机|品质|AOI|8D|注塑|不良|AGV|物流|按时|配送|库存|供应|物料|呆滞|能耗|安全|用电|EHS/i.test(args.input);
+    const extra = officialFindings(args.db, args.now).flatMap((f): Discovery[] => {
+      const topic = topics[f.id as keyof typeof topics];
+      if (!topic || (!general && !topic.pattern.test(args.input))) return [];
+      return [{ id: f.id, domain: topic.domain, title: f.title, kind: '历史观察', summary: f.observation, source: f.basis, scope: '官方素材包记录；计算明细见证据表', limitation: f.boundary, agentId: topic.agentId, question: topic.question, evidence: f.table }];
+    });
+    const discoveries = [...(context.discoveries ?? []), ...extra];
+    const headline = `从平台记录重算 ${discoveries.length} 项数据发现（官方仿真素材）`;
+    return { ...context, headline, discoveries, facts: discoveries.map(d => `【${d.kind}】${d.summary}`),
+      blocks: discoveries.map(d => ({ title: `${d.title}（${d.kind}）`, lines: [d.summary, `来源：${d.source}；范围：${d.scope}`, `边界：${d.limitation}`] })),
+      preparedResponse: { mode: 'offline', answer: `${headline}。展开下方卡片查看计算证据，或交给领域助手继续分析。历史观察、规则回测和情景估算均不代表实际已实现收益。` },
+    };
   },
 };

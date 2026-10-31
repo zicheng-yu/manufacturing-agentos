@@ -14,6 +14,7 @@ import {
   STRATEGY_LABEL,
   VIBRATION_ALARM,
   VIBRATION_WARN,
+  warningAudit,
 } from './data.ts';
 
 /** Where each OEE loss reason is handled, so advice points at the right owner. */
@@ -48,8 +49,9 @@ export const equipmentAgent: AgentDefinition = {
     const health = equipmentHealth(db);
     const focus = health.find((h) => input.toUpperCase().includes(h.equipment.id)) ?? null;
     const repairs = listRepairs(db);
+    const audit = warningAudit(db);
     const leads = health.flatMap((h) => h.precursors);
-    const avgLead = leads.length ? Math.round(leads.reduce((s, l) => s + l.hoursAhead, 0) / leads.length) : null;
+    const avgLead = leads.length ? round(leads.reduce((s, l) => s + l.hoursAhead, 0) / leads.length, 1) : null;
     const flagged = health.filter((h) => h.status !== '正常' || h.alarms.length);
     const gaps = (focus ? [focus] : health).map((h) => coverage(db, h.equipment.id)).filter((g): g is string => g !== null);
     const blocks = [
@@ -83,10 +85,11 @@ export const equipmentAgent: AgentDefinition = {
       blocks,
       facts: [
         ...(avgLead !== null ? [`${repairs.length} 次故障中有 ${leads.length} 次在发生前 ${PRECURSOR_HOURS} 小时内满足24小时3次关注区读数，按第3次读数触发时间算，平均提前 ${avgLead} 小时`] : []),
+        ...(repairs.length ? [`${audit.mature} 次有完整72小时后续观察的告警中 ${audit.unmatched} 次未匹配维修记录；随访不足的 ${audit.censored} 次另计`] : []),
         ...health.filter((h) => h.missing > 0).slice(0, 3).map((h) => `${h.equipment.id} 缺失 ${h.missing} 条读数`),
       ],
       pending: [
-        '前兆与故障的对应基于故障样本回看，未评估无故障时段的误报率，不能代表预测准确率或未来全覆盖；需设备工程师结合维修报告确认因果',
+        '前兆与故障的对应基于故障样本回看，告警未匹配维修记录不等于确定误报，不能代表预测准确率或未来全覆盖；需设备工程师结合维修报告确认因果',
         ...gaps.map((g) => `${g.split(' ')[0]} 的历史与实时读数之间有断档，趋势判断只看实时读数`),
       ],
       suggestions: [
@@ -151,7 +154,7 @@ export const oeeAgent: AgentDefinition = {
       blocks: [
         {
           title: '各产线近 7 日 OEE',
-          lines: lines.map((l) => `${l.line}：OEE ${l.oee}% = 时间 ${l.availability}% × 性能 ${l.performance}% × 质量 ${l.quality}%，最弱项 ${l.weakest}，主要损失 ${l.losses[0]?.reason ?? '—'}`),
+          lines: lines.map((l) => `${l.line}：OEE均值 ${l.oee}%；三个因子的各自均值为时间 ${l.availability}%、性能 ${l.performance}%、质量 ${l.quality}%（均值乘积不等于OEE均值），最弱项 ${l.weakest}，主要损失 ${l.losses[0]?.reason ?? '—'}`),
         },
         ...(focus
           ? [

@@ -41,13 +41,12 @@ describe('platform-backed official evidence', () => {
     const cookie = await e.login('chairman');
     const result = await e.send('POST', '/api/agents/executive.insights/turns', { question: '平台数据还有哪些发现？' }, { Cookie: cookie });
     expect(result.status).toBe(200);
-    expect(result.body.turn.result.artifacts).toHaveLength(1);
-    expect(result.body.turn.result.artifacts[0].rows).toHaveLength(7);
+    expect(result.body.turn.result.discoveries).toHaveLength(17);
+    expect(result.body.turn.result.discoveries.every((d: any) => d.evidence.columns.length)).toBe(true);
     expect(result.body.turn.result.actions).toEqual([]);
-    expect(result.body.turn.result.answer).toContain('未计算无故障时段误报率');
+    expect(result.body.turn.result.answer).toContain('不代表实际已实现收益');
     const focus = await e.send('POST', '/api/agents/executive.insights/turns', { question: '核验预警明细' }, { Cookie: cookie });
-    expect(focus.body.turn.result.artifacts).toHaveLength(2);
-    expect(focus.body.turn.result.artifacts[1].rows).toHaveLength(16);
+    expect(focus.body.turn.result.discoveries.find((d: any) => d.id === 'equipment-warning').evidence.rows).toHaveLength(16);
     expect((await e.send('POST', '/api/agents/executive.insights/turns', { question: '查库存' }, { Cookie: await e.login('supply') })).status).toBe(403);
   });
 

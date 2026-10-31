@@ -99,7 +99,7 @@ export const agvAgent: AgentDefinition = {
       blocks: [
         { title: '按车辆', lines: a.byAgv.map((g) => `${g.key}：${g.tasks} 单，超时 ${g.timeouts}（${percent(g.rate, 1)}），平均等待 ${g.wait} 秒`) },
         { title: '超时单数最多的线路（≥5 单）', lines: a.byRoute.slice(0, 5).map((g) => `${g.key}：${g.tasks} 单，超时 ${g.timeouts} 单（${percent(g.rate, 1)}），平均等待 ${g.wait} 秒`) },
-        { title: '差距', lines: [`有效任务 ${a.valid} 单，达到 95% 需超时不超过 ${allowed} 单，现为 ${a.timeouts} 单，需减少 ${Math.max(0, a.timeouts - allowed)} 单`, waitNotCause ? `${worst.key} 平均等待 ${worst.wait} 秒，不高于全队平均 ${a.avgWait} 秒：它的超时不是排队等待造成的，更可能与所跑线路或车辆状态有关（待核）` : `${worst.key} 平均等待 ${worst.wait} 秒，高于全队平均 ${a.avgWait} 秒`] },
+        { title: '差距', lines: [`有效任务 ${a.valid} 单，达到 95% 需超时不超过 ${allowed} 单，现为 ${a.timeouts} 单，需减少 ${Math.max(0, a.timeouts - allowed)} 单`, waitNotCause ? `${worst.key} 平均等待 ${worst.wait} 秒，不高于全队平均 ${a.avgWait} 秒：不能仅凭平均等待排除排队影响，也不能据此确认车辆故障；需核查任务级等待、线路与车辆状态` : `${worst.key} 平均等待 ${worst.wait} 秒，高于全队平均 ${a.avgWait} 秒`] },
         { title: '调度数据异常', lines: [`${a.invalid.length} 单起点与终点相同（如 ${a.invalid.slice(0, 3).map((t) => `${t.id} ${t.origin}`).join('、')}），已从按时率中剔除`] },
         { title: '依据', lines: [`${cite('SLM-2025-001-2.6')}：AGV 任务自动执行率 ≥95%（制度未单列按时率，95% 作参照）`, `${cite('SLM-2025-001-5.2')}：死锁与拥堵触发后调度工程师 10 分钟内介入，反复出现的路段纳入地图优化`, `${cite('SLM-2025-001-4.3')}：电池健康档案，容量衰减超限立即停用更换`] },
       ],
@@ -126,7 +126,7 @@ export function syncAgvAlerts(deps: Deps): void {
   syncStateAlerts(deps, 'logistics', 'agv_timeout', a.onTime < AGV_TARGET
     ? [{
         key: 'fleet',
-        title: `AGV 按时率 ${percent(a.onTime, 1)}，低于 95%`,
+        title: `AGV 按时率 ${percent(a.onTime, 1)}，低于 95% 参照目标`,
         summary: `${a.valid} 单有效任务超时 ${a.timeouts} 单；${worst.key} 超时率 ${percent(worst.rate, 1)}，平均等待 ${worst.wait} 秒；另有 ${a.invalid.length} 单起终点相同的调度数据异常`,
         // Late deliveries to line-side stores show up on the lines as 缺料待料.
         payload: { onTime: a.onTime, worstAgv: worst.key, invalid: a.invalid.length, causes: ['缺料待料'] },

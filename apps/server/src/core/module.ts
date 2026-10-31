@@ -7,6 +7,7 @@ import type {
   Level,
   Metric,
   PolicyResponse,
+  Discovery,
   Role,
   Severity,
   Signal,
@@ -128,6 +129,7 @@ export interface AgentCtx extends ModuleCtx {
 }
 
 export interface AgentContext {
+  discoveries?: Discovery[];
   /** A module may supply an already validated response, skipping generic model composition. */
   preparedResponse?: { answer: string; mode: 'llm' | 'offline' };
   policy?: PolicyResponse;

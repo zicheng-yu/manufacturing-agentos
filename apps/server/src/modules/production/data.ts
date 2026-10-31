@@ -131,6 +131,43 @@ export function warningTrigger(series: Reading[]): Reading | null {
   return null;
 }
 
+/** Rolling rule evaluated with information available at that instant; no future repair labels are used. */
+function warningTriggers(input: Reading[]): Reading[] {
+  const series = [...new Map(input.map(r => [parseStamp(r.ts), r])).values()].filter(r => Number.isFinite(parseStamp(r.ts))).sort((a,b) => parseStamp(a.ts)-parseStamp(b.ts));
+  const triggers: Reading[] = [];
+  let active = false;
+  let left = 0;
+  for (let i = 0; i < series.length; i++) {
+    const t = parseStamp(series[i].ts);
+    while (left < i && t - parseStamp(series[left].ts) > 24 * 3600_000) left++;
+    const count = series.slice(left, i + 1).filter(r => r.vibration !== null && r.vibration >= VIBRATION_WARN).length;
+    const next = count >= PRECURSOR_READINGS;
+    if (next && !active) triggers.push(series[i]);
+    active = next;
+  }
+  return triggers;
+}
+
+export function warningAudit(db: DB) {
+  const repairs = listRepairs(db);
+  let mature = 0, unmatched = 0, censored = 0;
+  const dates: string[] = [];
+  for (const e of listEquipment(db)) {
+    const series = readings(db, e.id);
+    if (!series.length) continue;
+    dates.push(series[0].ts, series.at(-1)!.ts);
+    const end = parseStamp(series.at(-1)!.ts);
+    for (const trigger of warningTriggers(series)) {
+      const t = parseStamp(trigger.ts);
+      if (end - t < PRECURSOR_HOURS * 3600_000) { censored++; continue; }
+      mature++;
+      if (!repairs.some(r => r.equipmentId === e.id && parseStamp(r.occurredAt) > t && parseStamp(r.occurredAt) - t <= PRECURSOR_HOURS * 3600_000)) unmatched++;
+    }
+  }
+  dates.sort();
+  return { mature, unmatched, censored, window: `${dates[0] ?? '无读数'} 至 ${dates.at(-1) ?? '无读数'}；末尾随访不足72小时的 ${censored} 次告警不计入未匹配率` };
+}
+
 /**
  * Per-equipment condition from the hourly sensor series: a robust baseline (median), readings past the ISO alarm
  * line, gaps in the series, and how far ahead alarms preceded the recorded failures.
@@ -144,6 +181,7 @@ export function equipmentHealth(db: DB, recentHours = 72): Health[] {
     const recent = series.slice(-recentHours);
     const recentAlarms = recent.filter((r) => (r.vibration ?? 0) >= VIBRATION_ALARM);
     const mine = repairs.filter((r) => r.equipmentId === equipment.id);
+    const triggers = warningTriggers(series);
     const precursors = mine
       .map((repair): Precursor | null => {
         const failedAt = parseStamp(repair.occurredAt);
@@ -151,7 +189,8 @@ export function equipmentHealth(db: DB, recentHours = 72): Health[] {
           const t = parseStamp(r.ts);
           return t < failedAt && failedAt - t <= PRECURSOR_HOURS * 3600_000 && (r.vibration ?? 0) >= VIBRATION_WARN;
         });
-        const confirmed = warningTrigger(window);
+        // Match actual alert transitions from the full series; do not restart the rule at a future failure's lookback boundary.
+        const confirmed = triggers.find(r => { const t = parseStamp(r.ts); return t < failedAt && failedAt - t <= PRECURSOR_HOURS * 3600_000; });
         if (!confirmed) return null;
         return {
           repair,

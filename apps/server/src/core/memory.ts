@@ -30,17 +30,17 @@ export function remember(
   if (existing.some((r) => String(r.content).trim().replace(/\s+/g, ' ') === key)) return null;
   const id = newId('MEM');
   db.prepare(
-    `INSERT INTO memory (id, domain, kind, content, source, agent_id, turn_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(id, input.domain, input.kind, input.content, input.source, input.agentId, input.turnId, now.toISOString());
+    `INSERT INTO memory (id, domain, kind, content, source, agent_id, turn_id, created_at, verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(id, input.domain, input.kind, input.content, input.source, input.agentId, input.turnId, now.toISOString(), input.kind === 'fact' ? 1 : 0);
   return rowToMemory(db.prepare('SELECT * FROM memory WHERE id = ?').get(id) as Row);
 }
 
-export function listMemory(db: DB, scopes: Scope[], limit = 50): MemoryRecord[] {
+export function listMemory(db: DB, scopes: Scope[], limit = 50, accountId?: string): MemoryRecord[] {
   if (scopes.length === 0) return [];
   const placeholders = scopes.map(() => '?').join(',');
   const rows = db
-    .prepare(`SELECT * FROM memory WHERE domain IN (${placeholders}) ORDER BY created_at DESC LIMIT ${Math.min(limit, 500)}`)
-    .all(...scopes) as Row[];
+    .prepare(`SELECT * FROM memory WHERE domain IN (${placeholders}) ${accountId ? 'AND turn_id IN (SELECT id FROM turns WHERE account_id = ?)' : ''} ORDER BY created_at DESC LIMIT ${Math.min(limit, 500)}`)
+    .all(...scopes, ...(accountId ? [accountId] : [])) as Row[];
   return rows.map(rowToMemory);
 }
 
@@ -48,7 +48,7 @@ export function listMemory(db: DB, scopes: Scope[], limit = 50): MemoryRecord[] 
 export function listMemoryForTurns(db: DB, turnIds: string[]): MemoryRecord[] {
   if (turnIds.length === 0) return [];
   const placeholders = turnIds.map(() => '?').join(',');
-  const rows = db.prepare(`SELECT * FROM memory WHERE turn_id IN (${placeholders}) ORDER BY created_at, rowid`).all(...turnIds) as Row[];
+  const rows = db.prepare(`SELECT * FROM memory WHERE turn_id IN (${placeholders}) AND (kind != 'fact' OR verified = 1) ORDER BY created_at, rowid`).all(...turnIds) as Row[];
   // Repeated facts remain stored with their provenance; pass only the latest exact copy to the model.
   const latest = new Map<string, MemoryRecord>();
   for (const row of rows) {

@@ -43,7 +43,7 @@ const BRIEFING_AGENT = 'executive.briefing';
 const BRIEFING_QUESTION = '今天最需要我决定的三件事是什么？逐项说明影响、建议负责人和完成时间。';
 
 const LoginBody = z.object({ username: z.string().min(1).max(64), password: z.string().min(1).max(200) });
-const TurnBody = z.object({ question: z.string().min(1).max(4000), conversationId: z.string().nullish() });
+const TurnBody = z.object({ question: z.string().min(1).max(4000), conversationId: z.string().nullish(), sourceTurnId: z.string().max(100).nullish(), sourceFindingId: z.string().max(100).nullish() });
 const EventStatusBody = z.object({ status: z.enum(['open', 'acknowledged', 'resolved']) });
 const TaskStatusBody = z.object({ status: z.enum(['open', 'done']) });
 
@@ -160,9 +160,9 @@ export function createApp(deps: Deps): Hono<AppEnv> {
 
   app.post('/api/agents/:agentId/turns', async (c) => {
     const account = requireAccount(c);
-    const { question, conversationId } = await body(c, TurnBody);
+    const request = await body(c, TurnBody);
     const agentId = c.req.param('agentId');
-    if (!c.req.header('accept')?.includes('text/event-stream')) return c.json(await runTurn(deps, { account, agentId, conversationId, question }));
+    if (!c.req.header('accept')?.includes('text/event-stream')) return c.json(await runTurn(deps, { account, agentId, ...request }));
     // Streaming: "delta" events carry answer text as the model writes it, then "turn" carries the saved result.
     return streamSSE(c, async (stream) => {
       let writes = Promise.resolve();
@@ -170,7 +170,7 @@ export function createApp(deps: Deps): Hono<AppEnv> {
         writes = writes.then(() => stream.writeSSE({ event: 'delta', data: JSON.stringify({ text }) }));
       };
       try {
-        const result = await runTurn(deps, { account, agentId, conversationId, question, onAnswer });
+        const result = await runTurn(deps, { account, agentId, ...request, onAnswer });
         await writes;
         await stream.writeSSE({ event: 'turn', data: JSON.stringify(result) });
       } catch (error) {
@@ -247,7 +247,7 @@ export function createApp(deps: Deps): Hono<AppEnv> {
   app.get('/api/memory', (c) => {
     const account = requireAccount(c);
     const scopes = account.role === 'executive' ? [...domainsFor(account.role), 'executive' as const] : domainsFor(account.role);
-    return c.json(listMemory(deps.db, scopes, 200));
+    return c.json(listMemory(deps.db, scopes, 200, account.id));
   });
 
   app.get('/api/tasks', (c) => {

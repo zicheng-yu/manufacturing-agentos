@@ -3,6 +3,34 @@ import { CheckCircle2, CircleHelp, Lightbulb, ListTodo } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { DataTable } from './DataTable.tsx';
+import { Link } from 'react-router';
+import type { Turn } from '@agentos/shared';
+
+export function DiscoveryCards({ turn }: { turn: Turn }) {
+  if (!turn.result.discoveries?.length) return null;
+  return <div className="grid gap-3 lg:grid-cols-2" aria-label="可追溯数据发现">
+    {turn.result.discoveries.map(d => <section key={d.id} className="rounded-lg border border-slate-200 p-4">
+      <div className="mb-2 text-xs font-medium text-brand-700">{d.kind}</div>
+      <h4 className="font-semibold text-slate-900">{d.title}</h4>
+      <p className="mt-2 text-sm leading-relaxed">{d.summary}</p>
+      <p className="mt-2 text-xs text-slate-500">{d.source} · {d.scope}</p>
+      <p className="mt-2 text-xs text-amber-800">{d.limitation}</p>
+      <details className="my-3 text-sm"><summary className="cursor-pointer text-brand-700">查看计算证据</summary><div className="mt-2 overflow-x-auto"><DataTable table={d.evidence} /></div></details>
+      <Link className="text-sm font-medium text-brand-700 hover:underline" to={`/agents/${d.agentId}?${new URLSearchParams({ q: d.question, sourceTurnId: turn.id, sourceFindingId: d.id })}`}>交给领域助手继续分析 →</Link>
+    </section>)}
+  </div>;
+}
+
+export function ReferenceSource({ result }: { result: AgentResult }) {
+  const r = result.reference;
+  if (!r) return null;
+  return <details className="rounded-lg border border-brand-200 bg-brand-50/40 p-3 text-sm">
+    <summary className="cursor-pointer text-brand-800">接续来源：{r.agentId} · {r.refreshedAt ? '本轮已重新计算' : '历史计算快照'}</summary>
+    <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-slate-600">{r.summary}</p>
+    <p className="mt-2 text-xs text-slate-500">原分析 {new Date(r.createdAt).toLocaleString('zh-CN')}{r.refreshedAt ? `；重算 ${new Date(r.refreshedAt).toLocaleString('zh-CN')}` : '；当前业务数据优先'}</p>
+    <Link className="mt-2 inline-block text-xs text-brand-700 hover:underline" to={`/agents/${r.agentId}/${r.conversationId}`}>返回来源对话</Link>
+  </details>;
+}
 
 const GROUP_STYLE = {
   fact: { box: 'border-slate-200 bg-slate-50', label: 'text-brand-700' },
