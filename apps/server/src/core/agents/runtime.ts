@@ -128,12 +128,11 @@ export async function runTurn(
   const result: AgentResult = {
     title: draft.title || context.headline || agent.name,
     answer: draft.answer,
-    // Facts are what the analysis computed; the model's own only when there are none, since facts go to shared memory.
-    facts: context.facts?.length ? context.facts.slice(0, 8) : mergeItems([], draft.facts, 8),
-    pending: mergeItems(context.pending, draft.pending, 6),
-    suggestions: mergeItems(context.suggestions, draft.suggestions, 6),
-    // Actions the analysis worked out become tasks; the model's own only when the analysis has none.
-    actions: context.actions?.length ? context.actions : unique(draft.actions, (a) => normalize(a.title)).slice(0, MODEL_ACTIONS),
+    // Only computed/verified context can establish facts or execution tasks, including when it is empty.
+    facts: (context.facts ?? []).slice(0, 8),
+    pending: mergeItems(context.pending, [...draft.pending, ...draft.facts.map((f) => `模型待核线索（未经业务验证）：${f}`)], 6),
+    suggestions: mergeItems(context.suggestions, [...draft.suggestions, ...draft.actions.slice(0, MODEL_ACTIONS).map((a) => `模型建议（未建待办）：${a.title}`)], 6),
+    actions: context.actions ?? [],
     artifacts: context.artifacts ?? [],
     eventIds: [],
     ...(context.policy ? { policy: context.policy } : {}),
@@ -181,7 +180,20 @@ export function deleteTurn(deps: Deps, account: Account, turnId: string): void {
   );
   transaction(deps.db, () => {
     deps.db.prepare('DELETE FROM memory WHERE turn_id = ?').run(turnId);
+    // Transfer a deduplicated task to another referring turn before removing this turn's own records.
+    deps.db.prepare(`UPDATE tasks SET turn_id = (
+      SELECT turn_id FROM task_turn_sources WHERE task_id = tasks.id AND turn_id <> ? ORDER BY turn_id LIMIT 1
+    ) WHERE turn_id = ? AND EXISTS (SELECT 1 FROM task_turn_sources WHERE task_id = tasks.id AND turn_id <> ?)`)
+      .run(turnId, turnId, turnId);
+    deps.db.prepare('DELETE FROM task_turn_sources WHERE turn_id = ?').run(turnId);
     deps.db.prepare('DELETE FROM tasks WHERE turn_id = ?').run(turnId);
+    // result.eventIds records the actual shared event references, including merged state events.
+    deps.db.prepare(`UPDATE events SET turn_id = (
+      SELECT t.id FROM turns t, json_each(t.result_json, '$.eventIds') ref
+      WHERE t.id <> ? AND ref.value = events.id ORDER BY t.created_at, t.id LIMIT 1
+    ) WHERE turn_id = ? AND EXISTS (
+      SELECT 1 FROM turns t, json_each(t.result_json, '$.eventIds') ref WHERE t.id <> ? AND ref.value = events.id
+    )`).run(turnId, turnId, turnId);
     deps.db.prepare('DELETE FROM events WHERE turn_id = ?').run(turnId);
     deps.db.prepare('DELETE FROM turns WHERE id = ?').run(turnId);
   });

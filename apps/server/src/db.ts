@@ -62,6 +62,13 @@ CREATE TABLE IF NOT EXISTS tasks (
   turn_id TEXT,
   created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS task_turn_sources (
+  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  turn_id TEXT NOT NULL REFERENCES turns(id) ON DELETE CASCADE,
+  PRIMARY KEY (task_id, turn_id)
+);
+INSERT OR IGNORE INTO task_turn_sources (task_id, turn_id)
+  SELECT tasks.id, tasks.turn_id FROM tasks JOIN turns ON turns.id = tasks.turn_id;
 CREATE TABLE IF NOT EXISTS events (
   id TEXT PRIMARY KEY,
   domain TEXT NOT NULL,
