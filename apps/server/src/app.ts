@@ -19,6 +19,7 @@ import { canSee, canUseAgent, domainsFor } from './core/roles.ts';
 import { computeSituation, listSignals, rowToSignal, signalEvents } from './core/signals.ts';
 import { openDb, migrate, type DB, type Row } from './db.ts';
 import { rankSignals } from './executive/briefing.ts';
+import * as cases from './executive/cases.ts';
 import { EXECUTIVE_AGENTS, MODULES } from './modules/index.ts';
 import { companyFor } from './seed/company.ts';
 
@@ -46,6 +47,23 @@ const LoginBody = z.object({ username: z.string().min(1).max(64), password: z.st
 const TurnBody = z.object({ question: z.string().min(1).max(4000), conversationId: z.string().nullish(), sourceTurnId: z.string().max(100).nullish(), sourceFindingId: z.string().max(100).nullish() });
 const EventStatusBody = z.object({ status: z.enum(['open', 'acknowledged', 'resolved']) });
 const TaskStatusBody = z.object({ status: z.enum(['open', 'done']) });
+const text = (max: number) => z.string().max(max);
+const CaseCreateBody = z.union([
+  z.object({ signalId: z.string().min(1).max(120) }),
+  z.object({ turnId: z.string().min(1).max(100), findingId: z.string().min(1).max(100) }),
+]);
+const CaseAskBody = z.object({ agentId: z.string().min(1).max(100), question: text(2000) });
+const CaseActionBody = z.object({
+  fromEntryId: z.string().max(100).optional(),
+  actionIndex: z.number().int().min(0).max(20).optional(),
+  title: text(200).optional(),
+  domain: z.enum(['production', 'supply', 'quality', 'logistics', 'ehs', 'hr']).optional(),
+  owner: text(60).optional(),
+  due: text(20).optional(),
+});
+const CaseReceiptBody = z.object({ actionEntryId: z.string().min(1).max(100), note: text(500), simulated: z.boolean().default(false) });
+const CaseVerifyBody = z.object({ mode: z.enum(['auto', 'manual']), passed: z.boolean().optional(), criterion: text(300).optional(), note: text(500).optional() });
+const CaseLessonBody = z.object({ title: text(80).optional(), symptom: text(300).optional(), conditions: text(500), measure: text(500).optional(), conclusion: z.enum(['effective', 'ineffective']) });
 
 async function body<T>(c: { req: { json(): Promise<unknown> } }, schema: z.ZodType<T>): Promise<T> {
   const parsed = schema.safeParse(await c.req.json().catch(() => null));
@@ -259,6 +277,34 @@ export function createApp(deps: Deps): Hono<AppEnv> {
     const account = requireScope(c, 'executive');
     return c.json(await runTurn(deps, { account, agentId: BRIEFING_AGENT, question: BRIEFING_QUESTION }));
   });
+
+  // --- Collaboration cases: one item, several roles, a verifiable outcome ------------------------------------
+  app.get('/api/cases', (c) => c.json(cases.listCases(deps, requireAccount(c))));
+
+  app.post('/api/cases', async (c) => {
+    const account = requireAccount(c);
+    const request = await body(c, CaseCreateBody);
+    const result = 'signalId' in request ? cases.createFromSignal(deps, account, request.signalId) : await cases.createFromDiscovery(deps, account, request.turnId, request.findingId);
+    return c.json(result, result.created ? 201 : 200);
+  });
+
+  app.get('/api/cases/:id', (c) => c.json(cases.caseDetail(deps, requireAccount(c), c.req.param('id'))));
+
+  const caseAction = (path: string, run: (account: Account, id: string, c: Parameters<typeof body>[0]) => void | Promise<void>) =>
+    app.post(`/api/cases/:id/${path}`, async (c) => {
+      const account = requireAccount(c);
+      await run(account, c.req.param('id'), c);
+      return c.json(cases.caseDetail(deps, account, c.req.param('id')));
+    });
+  caseAction('candidates', async (a, id, c) => cases.addCandidate(deps, a, id, (await body(c, z.object({ signalId: z.string().min(1).max(120) }))).signalId));
+  caseAction('ask', async (a, id, c) => { const b = await body(c, CaseAskBody); await cases.askInCase(deps, a, id, b.agentId, b.question); });
+  caseAction('actions', async (a, id, c) => cases.confirmAction(deps, a, id, await body(c, CaseActionBody)));
+  caseAction('receipts', async (a, id, c) => cases.confirmReceipt(deps, a, id, await body(c, CaseReceiptBody)));
+  caseAction('submit', (a, id) => cases.submitForVerification(deps, a, id));
+  caseAction('verify', async (a, id, c) => cases.verifyCase(deps, a, id, await body(c, CaseVerifyBody)));
+  caseAction('reopen', (a, id) => cases.reopenCase(deps, a, id));
+  caseAction('lesson', async (a, id, c) => cases.saveLesson(deps, a, id, await body(c, CaseLessonBody)));
+  caseAction('references', async (a, id, c) => cases.referenceLesson(deps, a, id, (await body(c, z.object({ lessonId: z.string().min(1).max(100) }))).lessonId));
 
   // --- Memory and tasks ------------------------------------------------------
   app.get('/api/memory', (c) => {

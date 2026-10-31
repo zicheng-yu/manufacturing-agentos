@@ -90,6 +90,8 @@ export function buildMessages(input: {
   history: { input: string; answer: string }[];
   question: string;
   today: string;
+  /** What other roles have contributed to the same case, limited to what the asking account may see. */
+  caseContext?: string;
 }): ChatMessage[] {
   const system = [
     `你是${input.company.name}企业智能体系统中的「${input.agent.name}」。今天是 ${input.today}。`,
@@ -124,7 +126,7 @@ export function buildMessages(input: {
   }
   messages.push({
     role: 'user',
-    content: `${renderBlocks(input.context)}\n\n${deterministic}\n\n【本对话历史记录（含未确认事项，不代表当前状态）】\n${memory}\n\n【问题】\n${input.question}`,
+    content: `${renderBlocks(input.context)}\n\n${deterministic}\n\n【本对话历史记录（含未确认事项，不代表当前状态）】\n${memory}${input.caseContext ? `\n\n【协作事项背景（其他岗位的分析与待办，不是已执行结果，也不是已验证的因果；本轮业务数据优先）】\n${input.caseContext}` : ''}\n\n【问题】\n${input.question}`,
   });
   return messages;
 }

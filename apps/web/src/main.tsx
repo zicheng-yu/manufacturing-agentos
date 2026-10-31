@@ -9,6 +9,8 @@ import '@fontsource/jetbrains-mono/600.css';
 import './index.css';
 import { Accounts } from './pages/Accounts.tsx';
 import { Agents } from './pages/Agents.tsx';
+import { CaseDetailPage } from './pages/CaseDetail.tsx';
+import { CaseList } from './pages/Cases.tsx';
 import { Cockpit } from './pages/Cockpit.tsx';
 import { Events } from './pages/Events.tsx';
 import { Login } from './pages/Login.tsx';
@@ -37,6 +39,8 @@ function App() {
         <Route path="agents/:agentId/:conversationId" element={<Agents />} />
         <Route path="m/:domain" element={<ModulePage />} />
         <Route path="employee-service" element={<Suspense fallback={<div className="p-6"><Spinner /></div>}><EmployeeService /></Suspense>} />
+        <Route path="cases" element={<CaseList />} />
+        <Route path="cases/:caseId" element={<CaseDetailPage />} />
         <Route path="events" element={<Events />} />
         {session.account.role === 'executive' && <Route path="accounts" element={<Accounts />} />}
         <Route path="*" element={<Navigate to="/" replace />} />

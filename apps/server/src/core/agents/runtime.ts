@@ -70,7 +70,7 @@ export function listTurns(deps: Deps, conversationId: string): Turn[] {
 /** Run one question through an agent: analysis → model (or offline) → persist memory, tasks and events. */
 export async function runTurn(
   deps: Deps,
-  input: { account: Account; agentId: string; conversationId?: string | null; question: string; sourceTurnId?: string | null; sourceFindingId?: string | null; onAnswer?: (text: string) => void },
+  input: { account: Account; agentId: string; conversationId?: string | null; question: string; sourceTurnId?: string | null; sourceFindingId?: string | null; caseContext?: { caseId: string; summary: string }; onAnswer?: (text: string) => void },
 ): Promise<{ conversation: Conversation; turn: Turn }> {
   const { account } = input;
   const agent = deps.registry.agent(input.agentId);
@@ -124,7 +124,7 @@ export async function runTurn(
     draft = { ...offlineDraft(agent, context), answer: context.preparedResponse.answer };
   } else if (deps.provider.mode === 'llm') {
     try {
-      const messages = buildMessages({ company: deps.company, agent, context, memory, history, question, today: isoDate(now) });
+      const messages = buildMessages({ company: deps.company, agent, context, memory, history, question, today: isoDate(now), caseContext: input.caseContext?.summary });
       let raw: string;
       if (input.onAnswer && deps.provider.stream) {
         // Pass on the answer text as the model writes it; the parsed result below is still what gets saved.
@@ -165,6 +165,7 @@ export async function runTurn(
     ...(context.policy ? { policy: context.policy } : {}),
     ...(context.discoveries ? { discoveries: context.discoveries } : {}),
     ...(reference ? { reference: reference.reference } : {}),
+    ...(input.caseContext ? { caseId: input.caseContext.caseId } : {}),
   };
 
   for (const event of context.events ?? []) {
