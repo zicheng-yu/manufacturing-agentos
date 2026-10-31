@@ -54,7 +54,7 @@ export function SituationCard({ situation, flashing, signalCount, linkToModule =
             <LevelPill level={situation.level} />
           </span>
         </div>
-        <p className={cx('min-h-12 text-[17px] leading-snug font-bold', alert ? 'text-red-700' : 'text-slate-900')}>{situation.headline}</p>
+        <p className={cx('line-clamp-2 min-h-[2lh] text-[17px] leading-snug font-bold', alert ? 'text-red-700' : 'text-slate-900')}>{situation.headline}</p>
         <dl className="grid grid-cols-3 gap-2 border-t border-slate-100 pt-3">
           {situation.metrics.map((m) => (
             <div key={m.label} className="flex min-w-0 flex-col gap-1">

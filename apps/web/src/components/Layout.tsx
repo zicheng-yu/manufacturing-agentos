@@ -1,5 +1,5 @@
 import { DOMAINS, ROLE_LABELS } from '@agentos/shared';
-import { Activity, Bot, LayoutDashboard, LogOut, UserCog, type LucideIcon } from 'lucide-react';
+import { Activity, BookOpen, Bot, LayoutDashboard, LogOut, UserCog, type LucideIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router';
 import { useSession } from '../session.tsx';
@@ -31,7 +31,7 @@ export function Layout() {
   const main: NavItem[] = [
     { to: '/', label: '经营驾驶舱', icon: LayoutDashboard },
     { to: '/agents', label: '智能体工作台', icon: Bot },
-    { to: '/employee-service', label: '公司制度助手', icon: Bot },
+    { to: '/employee-service', label: '公司制度助手', icon: BookOpen },
   ];
   const modules: NavItem[] = DOMAINS.filter((d) => session.domains.includes(d)).map((d) => ({
     to: `/m/${d}`,
