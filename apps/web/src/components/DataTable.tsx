@@ -1,4 +1,5 @@
 import type { TableArtifact } from '@agentos/shared';
+import { useEffect, useRef, useState } from 'react';
 import { cx } from '../ui.tsx';
 
 const BAD = new Set(['缺料风险', '已逾期', '延迟', '停机', '严重', '未开单', 'A 致命', '淘汰', '告警']);
@@ -17,9 +18,21 @@ function tone(value: string | number): string | undefined {
 }
 
 export function DataTable({ table, compact }: { table: TableArtifact; compact?: boolean }) {
+  const viewport = useRef<HTMLDivElement>(null);
+  const [overflowing, setOverflowing] = useState(false);
+  useEffect(() => {
+    const element = viewport.current!;
+    const measure = () => setOverflowing(element.scrollWidth > element.clientWidth + 1);
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    if (element.firstElementChild) observer.observe(element.firstElementChild);
+    measure();
+    return () => observer.disconnect();
+  }, [table]);
   return (
-    <div>
-      <div className="overflow-x-auto">
+    <div className="min-w-0 max-w-full">
+      {overflowing && <p className="px-3 py-1.5 text-[11px] text-slate-500">左右滚动查看完整表格</p>}
+      <div ref={viewport} className="max-w-full overflow-x-auto" tabIndex={overflowing ? 0 : undefined} aria-label={overflowing ? `${table.title}，可横向滚动查看全部列` : table.title}>
         <table className="w-full min-w-max text-left text-[13px]">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50 text-xs text-slate-600">

@@ -27,10 +27,10 @@ export function cx(...classes: (string | false | null | undefined)[]): string {
 
 export function Card({ children, className, title, action }: { children: ReactNode; className?: string; title?: ReactNode; action?: ReactNode }) {
   return (
-    <section className={cx('rounded-[10px] border border-slate-200 bg-white', className)}>
+    <section className={cx('min-w-0 max-w-full rounded-[10px] border border-slate-200 bg-white', className)}>
       {title && (
-        <header className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
-          <h2 className="text-sm font-bold text-slate-900">{title}</h2>
+        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+          <h2 className="min-w-0 text-sm font-bold text-slate-900">{title}</h2>
           {action}
         </header>
       )}
@@ -42,11 +42,11 @@ export function Card({ children, className, title, action }: { children: ReactNo
 /** Numbered section rule: "01 全局态势 SITUATION ———". */
 export function Section({ no, title, en, action, children, className }: { no: string; title: string; en: string; action?: ReactNode; children: ReactNode; className?: string }) {
   return (
-    <section className={cx('space-y-3.5', className)}>
-      <div className="flex items-center gap-3">
-        <span className="num text-[22px] leading-none font-bold text-brand-600">{no}</span>
+    <section className={cx('min-w-0 space-y-3.5', className)}>
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="num shrink-0 text-[22px] leading-none font-bold text-brand-600">{no}</span>
         <h2 className="text-lg font-bold text-slate-900">{title}</h2>
-        <span className="hidden font-mono text-[11px] tracking-[0.14em] text-slate-500 sm:inline">{en}</span>
+        <span className="hidden font-mono text-[11px] tracking-[0.14em] text-slate-500 xl:inline">{en}</span>
         <span className="h-px flex-1 bg-slate-300" />
         {action}
       </div>

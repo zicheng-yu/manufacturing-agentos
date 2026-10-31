@@ -1,5 +1,5 @@
 import { DOMAINS, type AgentInfo, type Conversation, type Domain, type Turn } from '@agentos/shared';
-import { ArrowRight, MessageSquarePlus, SendHorizontal, Trash2 } from 'lucide-react';
+import { ArrowRight, ChevronDown, MessageSquarePlus, SendHorizontal, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { api, ApiError, postStream, useApi } from '../api.ts';
@@ -132,24 +132,28 @@ export function Agents() {
   const area = areas.find((g) => g.scope === agent?.module);
   const conversationId = params.conversationId ?? null;
 
-  const conversations = useApi<Conversation[]>('/api/conversations');
+  const conversations = useApi<Conversation[]>(area ? `/api/conversations?domain=${area.scope}` : null);
   const detail = useApi<{ conversation: Conversation; turns: Turn[] }>(conversationId ? `/api/conversations/${conversationId}` : null);
   const [pending, setPending] = useState<{ question: string; agentId: string } | null>(null);
   // Answer text as the model writes it; replaced by the saved turn when the stream ends.
   const [streamed, setStreamed] = useState('');
   const [draft, setDraft] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [navigationOpen, setNavigationOpen] = useState(false);
   const bottom = useRef<HTMLDivElement>(null);
+  const messages = useRef<HTMLDivElement>(null);
 
   const turns = conversationId ? (detail.data?.turns ?? []) : [];
   useEffect(() => { setDraft(incomingQuestion); }, [incomingQuestion, agent?.id]);
 
   useEffect(() => {
     setError(null);
+    setNavigationOpen(false);
   }, [conversationId, agent?.id]);
 
   useEffect(() => {
-    bottom.current?.scrollIntoView({ behavior: 'smooth' });
+    if (turns.length || pending) bottom.current?.scrollIntoView({ behavior: 'smooth' });
+    else messages.current?.scrollTo({ top: 0 });
   }, [turns.length, pending, streamed.length > 0]);
 
   async function ask(question: string, target: AgentInfo) {
@@ -203,9 +207,13 @@ export function Agents() {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col lg:flex-row">
+    <div className="flex h-full min-h-0 min-w-0 flex-col lg:flex-row">
       {/* Areas and this area's conversations */}
-      <aside className="flex shrink-0 flex-col border-b border-slate-200 bg-white lg:w-64 lg:border-r lg:border-b-0">
+      <aside className="flex min-h-0 min-w-0 max-w-full shrink-0 flex-col border-b border-slate-200 bg-white lg:w-64 lg:border-r lg:border-b-0">
+        <button type="button" aria-expanded={navigationOpen} aria-controls="workbench-navigation" onClick={() => setNavigationOpen(open => !open)} className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm text-brand-700 lg:hidden">
+          <span>{scopeLabel(area.scope)} · 领域与历史对话</span><ChevronDown className={cx('size-4 shrink-0 transition', navigationOpen && 'rotate-180')} />
+        </button>
+        <div id="workbench-navigation" className={cx('min-h-0 min-w-0 flex-col lg:flex lg:flex-1', navigationOpen ? 'flex' : 'hidden')}>
         {areas.length > 1 && (
           <nav aria-label="选择领域" className="border-slate-100 p-3 lg:border-b">
             <div className="mb-1.5 hidden px-2 text-[11px] font-medium text-slate-400 lg:block">选择领域</div>
@@ -225,7 +233,7 @@ export function Agents() {
                       </span>
                       <span className="min-w-0">
                         <span className={cx('block text-sm', active ? 'font-semibold text-brand-700' : 'text-slate-800')}>{scopeLabel(g.scope)}</span>
-                        <span className="hidden truncate text-[11px] text-slate-500 lg:block">{g.agents.map(specialty).join('、')}</span>
+                        <span className="hidden text-[11px] text-slate-500 lg:block">{g.agents.map(specialty).join('、')}</span>
                       </span>
                     </Link>
                   </li>
@@ -234,6 +242,19 @@ export function Agents() {
             </ul>
           </nav>
         )}
+        <div className="flex min-w-0 items-center gap-2 border-t border-slate-100 px-3 py-2 lg:hidden">
+          <label className="min-w-0 flex-1 text-xs text-slate-500">历史对话
+            <select aria-label="本领域历史对话" className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-sm text-slate-700" value={conversationId ?? ''} onChange={e => {
+              const selected = history.find(c => c.id === e.target.value);
+              navigate(selected ? `/agents/${selected.agentId}/${selected.id}` : `/agents/${current.id}`);
+            }}>
+              <option value="">新对话</option>
+              {history.map(c => <option key={c.id} value={c.id}>{specialty(byId.get(c.agentId)!)} · {c.title}</option>)}
+              {conversationId && !history.some(c => c.id === conversationId) && <option value={conversationId}>当前对话</option>}
+            </select>
+          </label>
+          <Link to={`/agents/${current.id}`} className="shrink-0 rounded-lg border border-slate-200 px-3 py-2 text-xs text-brand-700">新对话</Link>
+        </div>
         <div className="hidden min-h-0 flex-1 overflow-y-auto p-3 lg:block">
           <div className="mb-1 flex items-center justify-between px-2">
             <span className="text-[11px] font-medium text-slate-400">{scopeLabel(area.scope)} · 对话</span>
@@ -257,6 +278,7 @@ export function Agents() {
           ))}
           {conversations.data && history.length === 0 && <p className="px-2 py-2 text-xs text-slate-400">还没有对话</p>}
         </div>
+        </div>
       </aside>
 
       {/* Conversation */}
@@ -268,7 +290,7 @@ export function Agents() {
             </div>
             <div className="min-w-0">
               <h1 className="text-sm font-semibold text-slate-900">{area.agents.length > 1 ? `${scopeLabel(area.scope)} · ${current.name}` : current.name}</h1>
-              <p className="truncate text-xs text-slate-500">{current.description}</p>
+              <p className="text-xs text-slate-500">{current.description}</p>
             </div>
           </div>
           {area.agents.length > 1 && (
@@ -290,7 +312,7 @@ export function Agents() {
             </nav>
           )}
         </header>
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div ref={messages} className="min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto max-w-5xl space-y-6 p-4 md:p-6">
           {!conversationId && sourceTurnId && <p className="rounded border border-brand-200 bg-brand-50 p-3 text-sm text-brand-800">已准备接续分析。发送后会核验来源权限；数据发现会基于当前平台数据重算。</p>}
           {turns.length === 0 && !pending && (

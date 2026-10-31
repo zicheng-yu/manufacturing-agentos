@@ -63,8 +63,8 @@ export function Layout() {
   const llm = catalog.llm.mode === 'llm' ? catalog.llm.model : '离线规则模式';
 
   return (
-    <div className="flex h-full min-h-0 flex-col md:flex-row">
-      <aside className="flex shrink-0 flex-col bg-ink-900 text-white md:w-58">
+    <div className="flex h-dvh min-h-0 min-w-0 flex-col md:flex-row">
+      <aside className="flex min-h-0 min-w-0 shrink-0 flex-col bg-ink-900 text-white md:w-58">
         <div className="flex items-center gap-2.5 px-4 py-4">
           <span className="relative flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand-600">
             <span className="num text-[22px] font-bold">D</span>
@@ -75,7 +75,7 @@ export function Layout() {
             <div className="font-mono text-[10px] tracking-[0.08em] text-[#8c9ab0]">MANUFACTURING · OS</div>
           </div>
         </div>
-        <nav aria-label="主导航" className="flex gap-0.5 overflow-x-auto px-2 pb-2 md:flex-1 md:flex-col md:overflow-visible">
+        <nav aria-label="主导航" className="flex min-h-0 min-w-0 gap-0.5 overflow-x-auto px-2 pb-2 md:flex-1 md:flex-col md:overflow-x-hidden md:overflow-y-auto">
           {main.map(link)}
           <div className="hidden px-3 pt-4 pb-1 font-mono text-[10px] tracking-[0.12em] text-[#8c9ab0] md:block">业务模块 · MODULES</div>
           {modules.map(link)}
@@ -102,7 +102,7 @@ export function Layout() {
           <span className="rounded-full border border-[#f5d27a] bg-amber-100 px-2.5 py-0.5 text-xs text-watch-ink" title={session.company.demoNotice}>
             演示数据
           </span>
-          <span className="hidden font-mono text-xs text-slate-600 sm:inline" title="当前模型">
+          <span className="hidden max-w-56 truncate font-mono text-xs text-slate-600 lg:inline" title={`当前模型：${llm}`}>
             MODEL · {llm}
           </span>
           <span className={cx('inline-flex items-center gap-1.5 text-xs', live ? 'text-green-700' : 'text-slate-500')}>
@@ -114,7 +114,7 @@ export function Layout() {
             退出
           </button>
         </header>
-        <main key={location.pathname.split('/')[1]} className="min-h-0 flex-1 overflow-y-auto">
+        <main key={location.pathname.split('/')[1]} className="min-h-0 min-w-0 flex-1 overflow-y-auto">
           <Outlet />
         </main>
       </div>

@@ -115,9 +115,9 @@ export const hrModule: DomainModule = {
     return {
       title: '组织健康',
       level,
-      headline: top ? top.title : '人员编制整体稳定',
+      headline: top ? top.title : '人员配置整体稳定',
       metrics: [
-        { label: '在岗 / 编制', value: `${actual} / ${plan}`, tone: 'neutral' },
+        { label: '在岗 / 计划人数', value: `${actual} / ${plan}`, tone: 'neutral' },
         { label: '关键岗位空缺', value: vacancies.length, unit: '个', tone: vacancies.length ? 'bad' : 'good' },
         { label: '30 天离职预警', value: attrition.length, unit: '人', tone: attrition.length ? 'bad' : 'good' },
       ],
@@ -132,15 +132,15 @@ export const hrModule: DomainModule = {
     return {
       metrics: [
         { label: '在岗', value: departments.reduce((s, d) => s + d.actual, 0), unit: '人' },
-        { label: '缺编', value: departments.reduce((s, d) => s + Math.max(0, d.plan - d.actual), 0), unit: '人' },
+        { label: '人员缺口', value: departments.reduce((s, d) => s + Math.max(0, d.plan - d.actual), 0), unit: '人' },
         { label: '招聘中岗位', value: positions.filter((p) => p.status === '招聘中').length, unit: '个' },
         { label: '未解决员工请求', value: requests.filter((r) => r.status !== '已解决').length, unit: '条' },
       ],
       tables: [
         {
           kind: 'table',
-          title: '部门编制',
-          columns: ['部门', '编制', '在岗', '缺编'],
+          title: '部门人员配置',
+          columns: ['部门', '计划人数', '在岗', '人员缺口'],
           rows: departments.map((d) => [d.name, d.plan, d.actual, Math.max(0, d.plan - d.actual)]),
         },
         {

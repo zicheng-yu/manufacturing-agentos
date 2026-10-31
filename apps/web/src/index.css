@@ -45,7 +45,17 @@ body {
   background: var(--color-slate-100);
   color: var(--color-slate-900);
   -webkit-font-smoothing: antialiased;
+  overflow-wrap: anywhere;
 }
+
+/* Keep wide records inside their own scroll area, and let form columns shrink. */
+fieldset { min-inline-size: 0; }
+input, select, textarea { min-width: 0; max-width: 100%; }
+.situation-card { container-type: inline-size; }
+.metric-reading { font-size: clamp(1rem, 7cqw, 1.875rem); }
+.metric-reading[data-long='true'] { font-size: clamp(0.95rem, 5cqw, 1.375rem); }
+.markdown { min-width: 0; max-width: 100%; }
+.markdown pre { max-width: 100%; overflow-x: auto; }
 
 /* Gauge readings and codes. */
 .num {
@@ -113,6 +123,9 @@ body {
   color: #0f172a;
 }
 .markdown table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
   border-collapse: collapse;
   margin: 0.5rem 0;
   font-size: 0.8125rem;
