@@ -10,6 +10,8 @@ export const siteAgent: AgentDefinition = {
   description: '汇总识别、抓取、码垛工位状态，对异常给出处置建议',
   instructions: '你负责厂内物流现场。先指出异常工位和影响，再按事件类型给处置建议（重试、人工介入或改道），不要编造设备参数。',
   starters: ['现在哪个工位有问题？', '码垛-02 抓取失败怎么处理', '近一小时的抓取成功率'],
+  // Palletizing stations exist only in the fictional fixtures; the official pack covers AGV dispatch.
+  datasets: ['demo'],
   context({ db, deps }) {
     const stats = stationStats(db);
     const t = totals(stationStats(db, 1));

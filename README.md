@@ -1,6 +1,6 @@
 # 达智汇 Manufacturing AgentOS
 
-达智汇「AI+智能制造」赛道参赛项目：一个制造业智能体平台。在赛题的供应链、品质、智能物流、HR 四个命题之外，按赛道官方素材包扩展了生产设备与能源安全两个模块。
+达智汇（ADTTech，原名友达数位）「AI+智能制造」赛道参赛项目：一个制造业智能体平台，结构上对应达智汇 DARL 的指标、感知、决策、执行四张网（见 [PRD 第 13 节](docs/PRD.md)）。在赛题的供应链、品质、智能物流、HR 四个命题之外，按赛道官方素材包扩展了生产设备与能源安全两个模块。
 
 - **身份解锁**：用什么岗位登录，就解锁什么模块、智能体与数据；董事长可见全部。
 - **事件上卷**：一线事件（设备振动、AGV 超时、到货延迟、致命不良、安全违规、离职预警）按规则聚合为经理层信号，再汇总为董事长态势卡，信号可回溯到原始事件。
@@ -37,7 +37,7 @@ npm run dev             # 打开 http://localhost:5173
 |---|---|
 | [docs/PRD.md](docs/PRD.md) | 产品需求文档 |
 | [docs/architecture.md](docs/architecture.md) | 架构、模块契约、怎么加功能、PR 约定 |
-| [docs/event-bridge.md](docs/event-bridge.md) | 仿真事件桥协议（物流仿真对接） |
+| [docs/event-bridge.md](docs/event-bridge.md) | 事件桥协议：外部系统上报事件与设备读数 |
 | [docs/competition.md](docs/competition.md) | 赛题四命题原文与待确认的赛事信息 |
 
 ## 协作

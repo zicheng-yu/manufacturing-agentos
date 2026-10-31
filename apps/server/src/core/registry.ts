@@ -1,15 +1,19 @@
 import type { Domain } from '@agentos/shared';
 import { HTTPException } from 'hono/http-exception';
+import type { Dataset } from '../config.ts';
 import type { AgentDefinition, DomainModule, EventTypeDefinition } from './module.ts';
 
 export class Registry {
   readonly modules: DomainModule[];
   readonly executiveAgents: AgentDefinition[];
+  readonly dataset: Dataset;
 
-  constructor(modules: DomainModule[], executiveAgents: AgentDefinition[]) {
+  constructor(modules: DomainModule[], executiveAgents: AgentDefinition[], dataset: Dataset) {
     this.modules = modules;
     this.executiveAgents = executiveAgents;
-    const ids = this.agents().map((a) => a.id);
+    this.dataset = dataset;
+    const all = [...executiveAgents, ...modules.flatMap((m) => m.agents)];
+    const ids = all.map((a) => a.id);
     const duplicate = ids.find((id, i) => ids.indexOf(id) !== i);
     if (duplicate) throw new Error(`Duplicate agent id: ${duplicate}`);
   }
@@ -24,8 +28,13 @@ export class Registry {
     return this.modules.some((m) => m.id === id);
   }
 
+  /** Agents that have records in the loaded dataset. */
   agents(): AgentDefinition[] {
-    return [...this.executiveAgents, ...this.modules.flatMap((m) => m.agents)];
+    return [...this.executiveAgents, ...this.modules.flatMap((m) => m.agents)].filter((a) => !a.datasets || a.datasets.includes(this.dataset));
+  }
+
+  starters(agent: AgentDefinition): string[] {
+    return agent.startersByDataset?.[this.dataset] ?? agent.starters;
   }
 
   agent(id: string): AgentDefinition {

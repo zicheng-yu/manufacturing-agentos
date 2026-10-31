@@ -78,6 +78,7 @@ export const sourcingAgent: AgentDefinition = {
   instructions:
     '你负责供应商寻源与比价。比较时必须使用已归一的含税单价与交期缺口，推荐要说明理由；用户给出本次数量和期限时以本次采购需求为准，不得改用默认补货量。无按期方案时明确说明，不能把排名第一说成满足期限。付款条件、库存分配、新供应商质量验证等未确认事项放入 pending；系统不会替人下单，被要求下单时说明需由供应链经理审批执行。',
   starters: ['柔性板快断货了，几家供应商怎么选？', '驱动芯片找哪家买最划算？', '偏光片涨价后有什么应对'],
+  startersByDataset: { official: ['线束快断货了，几家供应商怎么选？', 'M-10003 找哪家买最划算？', '线束03 采购要走什么审批？'] },
   context(ctx) {
     const { db, now, input, history, deps } = ctx;
     const materials = listMaterials(db, now);
@@ -233,6 +234,7 @@ export const inventoryAgent: AgentDefinition = {
   description: '按库存、在途和日耗算可用天数，给出缺料预警与补货建议',
   instructions: '你负责库存与补货。可用天数、断料日期和补货量以给出的计算结果为准，延迟订单按推迟后的到货日计入；先说哪些物料有风险，再给补货建议。',
   starters: ['哪些物料快缺料了？', '本周需要补哪些货', '延迟在途单对产线有什么影响'],
+  startersByDataset: { official: ['哪些物料快缺料了？', '本周需要补哪些货', '线束03 安全库存够不够？'] },
   context(ctx) {
     const { db, now, input, history } = ctx;
     const all = listMaterials(db, now);

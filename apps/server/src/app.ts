@@ -23,7 +23,7 @@ import { EXECUTIVE_AGENTS, MODULES } from './modules/index.ts';
 import { companyFor } from './seed/company.ts';
 
 export function createDeps(config: Config, overrides: Partial<Pick<Deps, 'db' | 'clock' | 'provider'>> = {}): Deps {
-  const registry = new Registry(MODULES, EXECUTIVE_AGENTS);
+  const registry = new Registry(MODULES, EXECUTIVE_AGENTS, config.dataset);
   const db: DB = overrides.db ?? openDb(config.dbPath);
   migrate(db, registry.modules.map((m) => m.schema ?? ''));
   for (const module of registry.modules) module.migrate?.(db);
@@ -126,7 +126,7 @@ export function createApp(deps: Deps): Hono<AppEnv> {
       agents: deps.registry
         .agents()
         .filter((a) => canUseAgent(account.role, a))
-        .map((a) => ({ id: a.id, module: a.module, name: a.name, description: a.description, starters: a.starters, ...(a.companyService ? { companyService: true } : {}) })),
+        .map((a) => ({ id: a.id, module: a.module, name: a.name, description: a.description, starters: deps.registry.starters(a), ...(a.companyService ? { companyService: true } : {}) })),
       llm: { mode: deps.provider.mode, model: deps.provider.model },
     };
     return c.json(catalog);

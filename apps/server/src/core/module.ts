@@ -109,6 +109,10 @@ export interface AgentDefinition {
   /** Role-specific instructions appended to the shared system prompt. */
   instructions: string;
   starters: string[];
+  /** Starter questions that fit one dataset's records better than the defaults. */
+  startersByDataset?: Partial<Record<Dataset, string[]>>;
+  /** Datasets this agent has records for; it is hidden on the others. All when omitted. */
+  datasets?: Dataset[];
   /** A narrowly scoped employee service, available to every authenticated account. */
   companyService?: boolean;
   /** Prepare grounded analysis; a service can also return an already validated model response. */
