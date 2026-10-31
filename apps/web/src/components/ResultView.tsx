@@ -3,6 +3,7 @@ import { CheckCircle2, CircleHelp, Lightbulb, ListTodo } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { DataTable } from './DataTable.tsx';
+import { StartCase } from './StartCase.tsx';
 import { Link } from 'react-router';
 import type { Turn } from '@agentos/shared';
 
@@ -16,7 +17,10 @@ export function DiscoveryCards({ turn }: { turn: Turn }) {
       <p className="mt-2 text-xs text-slate-500">{d.source} · {d.scope}</p>
       <p className="mt-2 text-xs text-amber-800">{d.limitation}</p>
       <details className="my-3 text-sm"><summary className="cursor-pointer text-brand-700">查看计算证据</summary><div className="mt-2 overflow-x-auto"><DataTable table={d.evidence} /></div></details>
-      <Link className="text-sm font-medium text-brand-700 hover:underline" to={`/agents/${d.agentId}?${new URLSearchParams({ q: d.question, sourceTurnId: turn.id, sourceFindingId: d.id })}`}>交给领域助手继续分析 →</Link>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <Link className="text-sm font-medium text-brand-700 hover:underline" to={`/agents/${d.agentId}?${new URLSearchParams({ q: d.question, sourceTurnId: turn.id, sourceFindingId: d.id })}`}>交给领域助手继续分析 →</Link>
+        <StartCase source={{ turnId: turn.id, findingId: d.id }} />
+      </div>
     </section>)}
   </div>;
 }

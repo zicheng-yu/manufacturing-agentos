@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router';
 import { api } from '../api.ts';
 import { CHANNEL_LABELS, cx, reading, DOMAIN_ICONS, DomainTag, Empty, LevelPill, SeverityBadge, Spinner, timeAgo, formatTime } from '../ui.tsx';
+import { StartCase } from './StartCase.tsx';
 
 /** Remember which keys changed recently so the UI can highlight them. */
 export function useFlash(ms = 2600) {
@@ -191,6 +192,9 @@ export function SignalDrawer({ signalId, onClose }: { signalId: string | null; o
               </div>
               <h3 className="mt-2 text-base font-semibold text-slate-900">{data.signal.title}</h3>
               <p className="mt-1 text-sm text-slate-600">{data.signal.summary}</p>
+              <div className="mt-3">
+                <StartCase source={{ signalId: data.signal.id }} />
+              </div>
             </div>
           ) : error ? <p role="alert" className="text-sm text-red-600">{error}</p> : (
             <Spinner className="text-slate-400" />

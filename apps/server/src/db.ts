@@ -101,6 +101,43 @@ CREATE TABLE IF NOT EXISTS signals (
   last_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS cases (
+  id TEXT PRIMARY KEY,
+  source_key TEXT NOT NULL UNIQUE,
+  goal TEXT NOT NULL,
+  origin_json TEXT NOT NULL,
+  objects_json TEXT NOT NULL,
+  causes_json TEXT NOT NULL,
+  status TEXT NOT NULL,
+  round INTEGER NOT NULL DEFAULT 1,
+  needs_review INTEGER NOT NULL DEFAULT 0,
+  owner_account_id TEXT NOT NULL REFERENCES accounts(id),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  verified_at TEXT
+);
+CREATE TABLE IF NOT EXISTS case_entries (
+  id TEXT PRIMARY KEY,
+  case_id TEXT NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  domain TEXT,
+  author_json TEXT NOT NULL,
+  round INTEGER NOT NULL,
+  data_json TEXT NOT NULL,
+  turn_id TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS case_entries_case ON case_entries(case_id, created_at);
+CREATE TABLE IF NOT EXISTS case_lessons (
+  id TEXT PRIMARY KEY,
+  source_case_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  domain TEXT NOT NULL,
+  tags_json TEXT NOT NULL,
+  data_json TEXT NOT NULL,
+  confirmed_by TEXT NOT NULL,
+  confirmed_at TEXT NOT NULL
+);
 `;
 
 export function openDb(path: string): DB {

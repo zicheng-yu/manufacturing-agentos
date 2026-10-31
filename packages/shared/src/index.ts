@@ -143,6 +143,8 @@ export interface AgentResult {
   policy?: PolicyResponse;
   discoveries?: Discovery[];
   reference?: AnalysisReference;
+  /** Set when the answer was produced for a collaboration case. */
+  caseId?: string;
 }
 
 export interface Discovery {
@@ -288,3 +290,135 @@ export const ROLE_LABELS: Record<Role, string> = {
   hr_mgr: 'HR 经理',
   logistics_mgr: '物流主管',
 };
+
+// --- Collaboration cases (YOU-143): one durable item, several roles, a verifiable outcome ---------------------
+
+export const CASE_STATUSES = ['pending', 'active', 'verifying', 'verified'] as const;
+export type CaseStatus = (typeof CASE_STATUSES)[number];
+export const CASE_STATUS_LABELS: Record<CaseStatus, string> = { pending: '待处理', active: '处理中', verifying: '待验证', verified: '已验证' };
+
+/** A typed reference to a business object. The source tables stay the source of truth; a case keeps references. */
+export interface CaseObjectRef {
+  type: 'material' | 'supplier' | 'equipment' | 'order' | 'complaint' | 'agv' | 'finding';
+  id: string;
+  label?: string;
+  /** Modules whose records mention it; a viewer sees the reference only if they can see one of them. */
+  domains: Domain[];
+}
+
+export const OBJECT_TYPE_LABELS: Record<CaseObjectRef['type'], string> = {
+  material: '物料',
+  supplier: '供应商',
+  equipment: '设备',
+  order: '订单',
+  complaint: '客诉',
+  agv: 'AGV',
+  finding: '数据发现',
+};
+
+export interface CaseOrigin {
+  kind: 'signal' | 'discovery';
+  id: string;
+  /** The signal rule or discovery id, used to match similar cases. */
+  ruleId: string;
+  domain: Domain;
+  title: string;
+  summary: string;
+  severity: Severity | null;
+}
+
+export interface CaseSummary {
+  id: string;
+  goal: string;
+  status: CaseStatus;
+  /** A new round starts when fresh evidence overturns a verified result. */
+  round: number;
+  needsReview: boolean;
+  owner: { name: string; title: string };
+  /** Null when the viewer may not see the origin's domain. */
+  origin: CaseOrigin | null;
+  originDomain: Domain;
+  objects: CaseObjectRef[];
+  domains: Domain[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type CaseEntryKind = 'evidence' | 'analysis' | 'action' | 'receipt' | 'verification' | 'reference';
+
+export interface CaseEntry {
+  id: string;
+  kind: CaseEntryKind;
+  /** The module the content belongs to; 'executive' content is chairman-only. */
+  domain: Domain | 'executive';
+  round: number;
+  author: { type: 'agent' | 'person' | 'system'; name: string; title?: string };
+  title: string;
+  body: string;
+  facts: string[];
+  pending: string[];
+  suggestions: string[];
+  artifacts: Artifact[];
+  /** Kind-specific fields: signalId and events for evidence, taskId for actions, mode and passed for verification. */
+  data: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface CaseCandidate {
+  signalId: string;
+  domain: Domain;
+  severity: Severity;
+  title: string;
+  /** Why it may be related, e.g. 共同物料 M-10003. A shared entity or tag is a lead, not a verified cause. */
+  basis: string[];
+  added: boolean;
+}
+
+/** A reading recomputed from current business data when the case is opened. */
+export interface CaseLive {
+  domain: Domain;
+  label: string;
+  value: string;
+  ok: boolean;
+  source: string;
+}
+
+export interface Lesson {
+  id: string;
+  sourceCaseId: string;
+  title: string;
+  domain: Domain;
+  symptom: string;
+  conditions: string;
+  measure: string;
+  result: string;
+  conclusion: 'effective' | 'ineffective';
+  verification: { mode: 'auto' | 'manual'; passed: boolean; at: string; criterion: string };
+  tags: string[];
+  confirmedBy: string;
+  confirmedAt: string;
+}
+
+export interface CaseAgentOption {
+  id: string;
+  name: string;
+  domain: Domain | 'executive';
+  description: string;
+  starters: string[];
+}
+
+export interface CaseDetail {
+  summary: CaseSummary;
+  /** Only entries the viewer's role may see; the rest are counted in hiddenEntries. */
+  entries: CaseEntry[];
+  hiddenEntries: number;
+  tasks: Task[];
+  candidates: CaseCandidate[];
+  live: CaseLive[];
+  agents: CaseAgentOption[];
+  lesson: Lesson | null;
+  similarLessons: Lesson[];
+  /** The owner and the chairman submit for verification, verify and save lessons. */
+  canManage: boolean;
+  canAutoVerify: boolean;
+}
