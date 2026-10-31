@@ -10,14 +10,14 @@ const ask = async (agent: string, question: string, extra = {}, user = 'chairman
 
 describe('discoveries and explicit working-memory handoff', () => {
   it('exposes database-backed observations, backtests and scenarios with evidence instead of invented improvements', async () => {
-    const r = await ask('executive.discoveries', '还有哪些值得行动的数据发现');
+    const r = await ask('executive.insights', '还有哪些值得行动的数据发现');
     expect(r.status).toBe(200);
     const findings = r.body.turn.result.discoveries;
     expect(findings.length).toBeGreaterThanOrEqual(12);
     expect(findings.every((d: any) => d.source && d.scope && d.limitation && d.evidence.columns.length)).toBe(true);
     expect(findings.find((d: any) => d.id === 'agv-ceiling').summary).toContain('90.7%');
     expect(findings.find((d: any) => d.id === 'aoi-holdout').summary).toContain('不能声称');
-    expect((await ask('executive.discoveries', '全部发现', {}, 'supply')).status).toBe(403);
+    expect((await ask('executive.insights', '全部发现', {}, 'supply')).status).toBe(403);
   });
 
   it('dates warnings from the third qualifying reading, with no future readings used at the trigger', () => {
@@ -26,12 +26,12 @@ describe('discoveries and explicit working-memory handoff', () => {
     for (const [time, vibration] of [['01:00', 3], ['02:00', 3], ['03:00', 3], ['04:00', 1]] as const) insert.run('EQ-CNC-001', `2026-09-10 ${time}`, vibration);
     env.deps.db.prepare('INSERT INTO production_repairs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run('REVIEW-WO', 'EQ-CNC-001', '2026-09-10 05:00', 'test', 'pending', 10, 100, 1, 'inspect');
     const lead = equipmentHealth(env.deps.db).find(h => h.equipment.id === 'EQ-CNC-001')!.precursors[0];
-    expect(lead.firstWarning).toBe('2026-09-10 03:00');
+    expect(lead.confirmedAt).toBe('2026-09-10 03:00');
     expect(lead.hoursAhead).toBe(2);
   });
 
   it('refreshes selected discoveries during handoff, checks ownership and stops quoting deleted sources', async () => {
-    const source = await ask('executive.discoveries', 'AGV 配送还有什么发现');
+    const source = await ask('executive.insights', 'AGV 配送还有什么发现');
     const extra = { sourceTurnId: source.body.turn.id, sourceFindingId: 'agv-ceiling' };
     expect((await ask('logistics.agv', '继续分析', extra, 'logistics')).status).toBe(404);
     env.deps.db.exec('UPDATE logistics_agv_tasks SET timeout = 0');
@@ -59,7 +59,7 @@ describe('discoveries and explicit working-memory handoff', () => {
       const r = await ask('production.equipment', '没有数据时呢');
       expect(r.body.turn.result.facts).toEqual([]);
       expect(r.body.turn.result.actions).toEqual([]);
-      expect(listMemory(env.deps.db, ['production']).some(m => m.content.includes('虚构收益'))).toBe(false);
+      expect(listMemory(env.deps.db, ['production']).some(m => m.kind === 'fact' && m.content.includes('虚构收益'))).toBe(false);
     } finally { agent.context = original; }
   });
 });

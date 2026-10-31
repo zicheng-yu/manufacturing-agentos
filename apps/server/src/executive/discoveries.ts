@@ -31,7 +31,7 @@ export function discover(db: DB, now: Date): Discovery[] {
       source: '02_设备传感器时序 + 03_设备故障维修记录', scope: audit.window,
       limitation: '规则：过去24小时≥3个有效读数达到2.8 mm/s，从第3次开始触发。未匹配记录不等于确定误报；历史覆盖不保证未来故障全部可预测。',
       agentId: 'production.equipment', question: '按实际触发时刻，预警能提前多久？还有多少未匹配故障的告警？',
-      evidence: table('故障与实际预警时刻', ['维修单', '设备', '故障时间', '触发时间', '提前小时'], repairs.map(r => { const lead = leads.find(l => l.repair.id === r.id); return [r.id, r.equipmentId, r.occurredAt, lead?.firstWarning ?? '未覆盖', lead?.hoursAhead ?? '—']; })) });
+      evidence: table('故障与实际预警时刻', ['维修单', '设备', '故障时间', '触发时间', '提前小时'], repairs.map(r => { const lead = leads.find(l => l.repair.id === r.id); return [r.id, r.equipmentId, r.occurredAt, lead?.confirmedAt ?? '未覆盖', lead?.hoursAhead ?? '—']; })) });
     const ranked = group(repairs, r => r.equipmentId, r => r.downtimeMin);
     const top = ranked.slice(0, 2);
     add({ id: 'repair-concentration', domain: 'production', title: '维修损失集中在哪些设备', kind: '历史观察',
@@ -168,7 +168,7 @@ export function discover(db: DB, now: Date): Discovery[] {
 }
 
 export const discoveryAgent: AgentDefinition = {
-  id: 'executive.discoveries', module: 'executive', name: '数据发现与协同助手', datasets: ['official'],
+  id: 'executive.insights', module: 'executive', name: '数据发现助手', datasets: ['official'],
   description: '从平台业务表重算发现、核验量化口径，并把具体发现交给领域助手继续分析',
   instructions: '所有发现都来自本次重算。严格区分历史观察、规则回测和情景估算，必须同时交代范围、分母和限制。不能将历史覆盖说成全部未来故障可预测，或将算法比较说成已经实现的收益。只选最相关的3项在正文说明。',
   starters: ['从官方数据还能发现哪些值得行动的问题？', '核验故障预警、排产和AGV改善数字', 'AOI、8D和注塑参数还有什么发现？', '库存和能耗可以优先改善什么？'],

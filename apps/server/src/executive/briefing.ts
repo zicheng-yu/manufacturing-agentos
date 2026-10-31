@@ -7,6 +7,7 @@ import { computeSituation, listSignals, signalEvents } from '../core/signals.ts'
 import { addMinutes, isoDate } from '../core/util.ts';
 
 const LEVEL_LABEL = { normal: '正常', watch: '关注', alert: '告警' } as const;
+const SEVERITY_LABEL = { info: '提示', warn: '警告', critical: '严重' } as const;
 
 /** HR departments that correspond to another module, so attrition can be linked to that module's risks. */
 const DEPARTMENT_DOMAIN: Record<string, Domain> = { 供应链部: 'supply', 品质部: 'quality', 智能物流部: 'logistics' };
@@ -15,7 +16,14 @@ const DEPARTMENT_DOMAIN: Record<string, Domain> = { 供应链部: 'supply', 品�
  * Payload fields that identify the same thing across modules: a material, a supplier, or a stop cause such as
  * 缺料待料 that production losses share with supply shortages and late line-side deliveries. A field may hold a list.
  */
-const LINK_FIELDS = ['materialCode', 'supplierName', 'supplier', 'causes'];
+const LINK_FIELDS = { materialCode: '共同物料', supplierName: '共同供应商', supplier: '共同供应商', causes: '共同原因标签' } as const;
+
+export interface LinkEvidence {
+  value: string;
+  kind: string;
+  sources: { domain: Domain; signalId: string; eventId: string; title: string }[];
+  summary: string;
+}
 
 function ruleFor(deps: Deps, signal: Signal): SignalRule | undefined {
   return deps.registry.module(signal.domain).signalRules.find((r) => r.id === signal.ruleId);
@@ -29,32 +37,41 @@ export function rankSignals(signals: Signal[]): Signal[] {
  * The same material, supplier or team showing up in signals of different modules, stated with the events that
  * show it, e.g. "FPC-1203：智能物流「入库暂存区积压 46 箱」；供应链「…缺料风险」".
  */
-export function crossDomainLinks(deps: Deps, signals: Signal[]): string[] {
-  const seen = new Map<string, Map<Domain, string>>();
+export function crossDomainEvidence(deps: Deps, signals: Signal[]): LinkEvidence[] {
+  const seen = new Map<string, Omit<LinkEvidence, 'summary'>>();
   for (const signal of signals) {
     for (const event of signalEvents(deps, signal)) {
-      for (const field of LINK_FIELDS) {
+      for (const [field, kind] of Object.entries(LINK_FIELDS)) {
         const raw = event.payload[field];
         for (const value of Array.isArray(raw) ? raw : [raw]) {
-          if (typeof value !== 'string' || !value) continue;
-          const byDomain = seen.get(value) ?? new Map<Domain, string>();
-          if (!byDomain.has(signal.domain)) byDomain.set(signal.domain, event.title);
-          seen.set(value, byDomain);
+          if (typeof value !== 'string' || !value.trim()) continue;
+          const key = `${kind}:${value.trim()}`;
+          const link = seen.get(key) ?? { value: value.trim(), kind, sources: [] };
+          if (!link.sources.some((s) => s.signalId === signal.id && s.eventId === event.id)) link.sources.push({ domain: signal.domain, signalId: signal.id, eventId: event.id, title: event.title });
+          seen.set(key, link);
         }
       }
     }
   }
-  const links = [...seen]
-    .filter(([, byDomain]) => byDomain.size >= 2)
-    .map(([value, byDomain]) => `${value}：${[...byDomain].map(([d, title]) => `${DOMAIN_LABELS[d]}「${title}」`).join('；')}（共享标识/原因标签是关联线索，未证明同一事件链或因果）`);
+  const links: LinkEvidence[] = [...seen.values()]
+    .filter((link) => new Set(link.sources.map((s) => s.domain)).size >= 2)
+    .map((link) => ({ ...link, summary: `${link.value}：${[...new Map(link.sources.map((s) => [s.domain, s.title]))].map(([d, title]) => `${DOMAIN_LABELS[d]}「${title}」`).join('；')}（${link.kind}，关联不代表已验证因果）` }));
 
   const activeDomains = new Set(signals.map((s) => s.domain));
   for (const signal of signals.filter((s) => s.ruleId === 'hr-team-attrition')) {
-    const department = signal.title.replace('减员预警', '');
-    const related = DEPARTMENT_DOMAIN[department];
-    if (related && activeDomains.has(related)) links.push(`${department}减员预警与${DOMAIN_LABELS[related]}风险叠加，处置人手可能不足`);
+    for (const event of signalEvents(deps, signal)) {
+      const department = typeof event.payload.department === 'string' ? event.payload.department : '';
+      const related = DEPARTMENT_DOMAIN[department];
+      if (!related || !activeDomains.has(related) || links.some((l) => l.kind === '人员风险叠加' && l.value === department)) continue;
+      const relatedSources = signals.filter((s) => s.domain === related).flatMap((s) => signalEvents(deps, s).map((e) => ({ domain: s.domain, signalId: s.id, eventId: e.id, title: e.title })));
+      if (relatedSources.length) links.push({ value: department, kind: '人员风险叠加', sources: [{ domain: signal.domain, signalId: signal.id, eventId: event.id, title: event.title }, ...relatedSources], summary: `${department}减员预警与${DOMAIN_LABELS[related]}风险叠加，处置人手可能不足（需负责人核实）` });
+    }
   }
   return links;
+}
+
+export function crossDomainLinks(deps: Deps, signals: Signal[]): string[] {
+  return crossDomainEvidence(deps, signals).map((link) => link.summary);
 }
 
 const DETAIL_FIELDS: [string, (v: unknown) => string][] = [
@@ -94,8 +111,9 @@ export const briefingAgent: AgentDefinition = {
   instructions: [
     '你面向董事长。先用一句话概括全局态势，再列出今天最需要决定的事，最后用一两句话点出跨部门关联及其含义。',
     '「今天最需要决定的事」必须与业务数据中的同名清单一一对应：顺序、事项、建议负责人、建议完成时限都不得改动或合并，可以用更适合董事长阅读的话说明影响。',
-    '引用「信号明细」里的具体数字（可用天数、延迟天数、积压箱数、历史根因）；「跨部门关联」已经给出证据，据此说明各部门的问题如何相互放大，不要说缺少证据。',
-    '回答追问时同样以这些数据为准；只能先做一件事时，选清单的第 1 件并说明理由。',
+    '引用「信号明细」里的具体数字。跨部门关联区分共同实体、共同原因标签与人员风险叠加，只能表述证据支持的关联，不能把标签共现写成已确认因果；按关联证据表的信号与事件编号追溯。',
+    '回答追问时同样以这些数据为准；只能先做一件事时，选清单的第 1 件，按「排序依据」里的时间窗、影响和是否需要董事长拍板说明它为什么更急（不要拿建议完成时限当理由），并说明其余两件由谁同步跟进。',
+    '问到各部门风险时，按部门逐一列出状态与 1–2 个关键数字。',
   ].join('\n'),
   starters: ['今天最需要我决定的三件事是什么？', '各部门现在有什么风险？', '供应链和品质的问题有关联吗？'],
   startersByDataset: { official: ['今天最需要我决定的三件事是什么？', '各部门现在有什么风险？', '缺料和停机有什么关系？'] },
@@ -103,7 +121,8 @@ export const briefingAgent: AgentDefinition = {
     const domains = domainsFor(account.role);
     const situations = domains.map((d) => computeSituation(deps, d));
     const signals = rankSignals(listSignals(deps, domains));
-    const links = crossDomainLinks(deps, signals);
+    const evidence = crossDomainEvidence(deps, signals);
+    const links = evidence.map((link) => link.summary);
 
     // Most severe first, then what belongs on the chairman's desk (playbook weight), then the most urgent.
     const urgent = [...signals].sort(
@@ -124,6 +143,18 @@ export const briefingAgent: AgentDefinition = {
         dueHours: playbook?.dueHours ?? 24,
         due,
       };
+    });
+
+    // What the ranking rests on, so "only one thing first" is argued from the facts, not from suggested deadlines.
+    const window = (signal: Signal): string => {
+      const dates = signalEvents(deps, signal).map((e) => e.payload.stockoutDate).filter((d): d is string => typeof d === 'string').sort();
+      if (!dates.length) return '无明确时间窗';
+      const days = Math.round((Date.parse(dates[0]) - Date.parse(isoDate(now))) / 86_400_000);
+      return `距预计断料约 ${days} 天（${dates[0]}）`;
+    };
+    const basis = decisions.map((d, i) => {
+      const weight = ruleFor(deps, d.signal)?.playbook.weight ?? 1;
+      return `${i + 1}. ${d.signal.title}：${SEVERITY_LABEL[d.signal.severity]}；${weight === 3 ? '需董事长拍板' : '经理层可处置'}；${window(d.signal)}；影响：${d.impact}`;
     });
 
     const alerts = situations.filter((s) => s.level === 'alert').map((s) => s.title);
@@ -149,6 +180,7 @@ export const briefingAgent: AgentDefinition = {
               )
             : ['暂无'],
         },
+        { title: '排序依据（严重度 → 是否需董事长拍板 → 时间窗）', lines: basis.length ? basis : ['无'] },
         { title: '跨部门关联', lines: links.length ? links : ['未发现跨部门关联'] },
         { title: '信号明细', lines: signals.length ? signals.map((sig) => signalDetail(deps, sig)) : ['无活跃信号'] },
       ],
@@ -170,6 +202,13 @@ export const briefingAgent: AgentDefinition = {
                 `${DOMAIN_LABELS[d.signal.domain]}：${d.signal.title}`,
               ]),
             },
+            ...(evidence.length ? [{
+              kind: 'table' as const,
+              title: '跨部门关联证据',
+              columns: ['关联对象', '关联类型', '部门', '依据信号', '原始事件', '事件标题'],
+              rows: evidence.flatMap((link) => link.sources.map((source) => [link.value, link.kind, DOMAIN_LABELS[source.domain], source.signalId, source.eventId, source.title])),
+              note: '同名实体或共同原因标签支持联合核查，不代表已确认因果；人员风险为待核影响。'
+            }] : []),
           ]
         : [],
     };

@@ -2,6 +2,7 @@ import type { AgentDefinition } from '../../core/module.ts';
 import { addDays, isoDate, round } from '../../core/util.ts';
 import {
   compareStrategies,
+  overtimePlan,
   equipmentHealth,
   lineOee,
   listRepairs,
@@ -25,6 +26,17 @@ const LOSS_ACTIONS: Record<string, string> = {
   计划保养: '把计划保养挪到低负荷班次，避开交期紧的工单',
 };
 
+/** Where the pack's hourly history stops and live readings begin, so a burst after a gap is not read as a trend. */
+function coverage(db: Parameters<typeof readings>[0], id: string): string | null {
+  const series = readings(db, id);
+  const at = (ts: string) => Date.parse(ts.replace(' ', 'T'));
+  for (let i = series.length - 1; i > 0; i--) {
+    const gapHours = (at(series[i].ts) - at(series[i - 1].ts)) / 3_600_000;
+    if (gapHours > 24) return `${id} 历史读数截至 ${series[i - 1].ts}，${series[i].ts} 起为现场实时上报，中间约 ${Math.round(gapHours / 24)} 天无读数`;
+  }
+  return null;
+}
+
 export const equipmentAgent: AgentDefinition = {
   id: 'production.equipment',
   module: 'production',
@@ -37,11 +49,13 @@ export const equipmentAgent: AgentDefinition = {
     const health = equipmentHealth(db);
     const focus = health.find((h) => input.toUpperCase().includes(h.equipment.id)) ?? null;
     const repairs = listRepairs(db);
-    const leads = health.flatMap((h) => h.precursors);
     const audit = warningAudit(db);
+    const leads = health.flatMap((h) => h.precursors);
     const avgLead = leads.length ? round(leads.reduce((s, l) => s + l.hoursAhead, 0) / leads.length, 1) : null;
     const flagged = health.filter((h) => h.status !== '正常' || h.alarms.length);
+    const gaps = (focus ? [focus] : health).map((h) => coverage(db, h.equipment.id)).filter((g): g is string => g !== null);
     const blocks = [
+      ...(gaps.length ? [{ title: '数据范围', lines: gaps }] : []),
       {
         title: '设备健康（30 天小时级读数）',
         lines: health.map(
@@ -52,8 +66,8 @@ export const equipmentAgent: AgentDefinition = {
       {
         title: `故障前 ${PRECURSOR_HOURS} 小时的振动前兆`,
         lines: leads.length
-          ? leads.map((l) => `${l.repair.id} ${l.repair.equipmentId}：${l.firstWarning} 满足过去24小时至少${PRECURSOR_READINGS}次读数≥${VIBRATION_WARN} mm/s，${l.hoursAhead} 小时后记录「${l.repair.symptom}」（原因 ${l.repair.cause}，停机 ${l.repair.downtimeMin} 分钟）`)
-          : ['维修记录前72小时没有匹配到该预警规则的触发记录'],
+          ? leads.map((l) => `${l.repair.equipmentId}：首次关注区读数 ${l.firstWarning}，${l.confirmedAt} 满足24小时内3次关注区读数（≥${VIBRATION_WARN} mm/s），触发后 ${l.hoursAhead} 小时发生「${l.repair.symptom}」（原因 ${l.repair.cause}，停机 ${l.repair.downtimeMin} 分钟）`)
+          : ['维修记录前没有出现关注区读数'],
       },
     ];
     if (focus) {
@@ -67,16 +81,19 @@ export const equipmentAgent: AgentDefinition = {
       });
     }
     return {
-      headline: avgLead !== null ? `历史回测覆盖 ${leads.length}/${repairs.length} 次故障，触发平均提前 ${avgLead} 小时` : `${flagged.length} 台设备出现过振动超限`,
+      headline: avgLead !== null ? `故障样本回看：${leads.length}/${repairs.length} 次满足预警规则，平均提前 ${avgLead} 小时` : `${flagged.length} 台设备出现过振动超限`,
       blocks,
       facts: [
-        ...(avgLead !== null ? [`历史回测：${repairs.length} 次故障中 ${leads.length} 次在前${PRECURSOR_HOURS}小时触发24小时内≥${PRECURSOR_READINGS}次读数越线规则，按实际触发算平均提前 ${avgLead} 小时`] : []),
-        `${audit.mature} 次具有完整72小时后续观察的告警中 ${audit.unmatched} 次未匹配维修记录；随访不足的 ${audit.censored} 次另计`,
+        ...(avgLead !== null ? [`${repairs.length} 次故障中有 ${leads.length} 次在发生前 ${PRECURSOR_HOURS} 小时内满足24小时3次关注区读数，按第3次读数触发时间算，平均提前 ${avgLead} 小时`] : []),
+        ...(repairs.length ? [`${audit.mature} 次有完整72小时后续观察的告警中 ${audit.unmatched} 次未匹配维修记录；随访不足的 ${audit.censored} 次另计`] : []),
         ...health.filter((h) => h.missing > 0).slice(0, 3).map((h) => `${h.equipment.id} 缺失 ${h.missing} 条读数`),
       ],
-      pending: ['素材为官方模拟数据；回测覆盖不代表未来全部故障可预测，未匹配记录不等于确定误报；阈值与点检措施须设备工程师确认'],
+      pending: [
+        '前兆与故障的对应基于故障样本回看，告警未匹配维修记录不等于确定误报，不能代表预测准确率或未来全覆盖；需设备工程师结合维修报告确认因果',
+        ...gaps.map((g) => `${g.split(' ')[0]} 的历史与实时读数之间有断档，趋势判断只看实时读数`),
+      ],
       suggestions: [
-        `24 小时内 ≥${PRECURSOR_READINGS} 次读数≥${VIBRATION_WARN} mm/s 建议点检；历史平均提前量仅供评估，结合设备工况确认处置`,
+        `24 小时内 ≥${PRECURSOR_READINGS} 次读数进入关注区（≥${VIBRATION_WARN} mm/s）即派点检单，按历史可提前约 ${avgLead ?? '—'} 小时处置；≥${VIBRATION_ALARM} mm/s 立即停机检查`,
         '缺失读数较多的设备先检查传感器与采集网关',
       ],
       artifacts: [
@@ -110,30 +127,64 @@ export const oeeAgent: AgentDefinition = {
   description: '按产线拆解 OEE（时间 × 性能 × 质量），找出最大损失和对应的责任部门',
   instructions: `你负责 OEE 分析。先说全厂与最差产线，再按损失原因给出改善方向；OEE 目标 ${OEE_TARGET}% 是演示设定，需注明。`,
   starters: ['最近一周哪条线 OEE 最差？', 'OEE 损失主要在哪里', 'L06 为什么 OEE 低'],
-  context({ db, input }) {
+  context({ db, input, history }) {
     const lines = lineOee(db);
     const losses = plantLosses(db);
     const plant = round(lines.reduce((s, l) => s + l.oee, 0) / (lines.length || 1), 1);
     const worst = [...lines].sort((a, b) => a.oee - b.oee)[0];
-    const focus = lines.find((l) => input.toUpperCase().includes(l.line)) ?? worst;
+    // A line named now or in the previous question keeps the answer on that line ("为什么？" after "哪条线最差").
+    const asked = [input, ...[...history].reverse()].map((text) => lines.find((l) => text.toUpperCase().includes(l.line))).find(Boolean);
+    const followUp = history.length > 0 && /为什么|原因|怎么改|如何改|改善|提升/.test(input);
+    const focus = asked ?? worst;
+    const scoped = Boolean(asked) || followUp;
+    const avg = (key: 'availability' | 'performance' | 'quality') => round(lines.reduce((s, l) => s + l[key], 0) / (lines.length || 1), 1);
+    const factors = focus
+      ? [
+          { name: '时间开动率', value: focus.availability, plant: avg('availability'), meaning: '受停机影响（下表的停机分钟）' },
+          { name: '性能开动率', value: focus.performance, plant: avg('performance'), meaning: '受降速、小停机、节拍偏差影响' },
+          { name: '合格品率', value: focus.quality, plant: avg('quality'), meaning: '受不良与返工影响' },
+        ]
+      : [];
+    const lagging = factors.filter((f) => f.value < f.plant).sort((a, b) => a.value - a.plant - (b.value - b.plant));
+    const focusActions = focus ? focus.losses.slice(0, 3).map((l) => `${l.reason}（${Math.round(l.downtimeMin)} 分钟）：${LOSS_ACTIONS[l.reason] ?? '现场核实'}`) : [];
     return {
-      headline: `近 7 日全厂 OEE ${plant}%，${worst?.line} 最低（${worst?.oee}%）`,
+      headline: scoped && focus
+        ? `${focus.line} 近 7 日 OEE ${focus.oee}%：${lagging.length ? `${lagging.map((f) => f.name).join('、')}低于全厂平均` : '三项均不低于全厂平均'}`
+        : `近 7 日全厂 OEE ${plant}%，${worst?.line} 最低（${worst?.oee}%）`,
       blocks: [
         {
           title: '各产线近 7 日 OEE',
           lines: lines.map((l) => `${l.line}：OEE均值 ${l.oee}%；三个因子的各自均值为时间 ${l.availability}%、性能 ${l.performance}%、质量 ${l.quality}%（均值乘积不等于OEE均值），最弱项 ${l.weakest}，主要损失 ${l.losses[0]?.reason ?? '—'}`),
         },
-        { title: '全厂损失原因（按停机分钟）', lines: losses.map((l) => `${l.reason}：${Math.round(l.downtimeMin)} 分钟，${l.days} 个线日`) },
-        {
-          title: `${focus?.line} 的损失`,
-          lines: focus ? focus.losses.map((l) => `${l.reason}：${Math.round(l.downtimeMin)} 分钟（${l.days} 天）→ ${LOSS_ACTIONS[l.reason] ?? '现场核实'}`) : ['无数据'],
-        },
+        ...(focus
+          ? [
+              {
+                title: `${focus.line} 与全厂平均对比`,
+                lines: [
+                  ...factors.map((f) => `${f.name}：${focus.line} ${f.value}%，全厂平均 ${f.plant}%（${f.meaning}）`),
+                  '停机分钟只影响时间开动率；性能开动率的降速、小停机明细不在素材包的 OEE 日统计中（数据中没有）',
+                ],
+              },
+              {
+                title: `${focus.line} 的停机损失（影响时间开动率）`,
+                lines: focus.losses.map((l) => `${l.reason}：${Math.round(l.downtimeMin)} 分钟（${l.days} 天）→ ${LOSS_ACTIONS[l.reason] ?? '现场核实'}`),
+              },
+            ]
+          : []),
+        ...(scoped ? [] : [{ title: '全厂损失原因（按停机分钟）', lines: losses.map((l) => `${l.reason}：${Math.round(l.downtimeMin)} 分钟，${l.days} 个线日`) }]),
       ],
-      facts: [
-        `近 7 日全厂 OEE ${plant}%，低于目标 ${OEE_TARGET}%（演示设定）`,
-        ...(losses[0] ? [`主要停机原因标为「${losses[0].reason}」的线日累计停机 ${Math.round(losses[0].downtimeMin)} 分钟；不能细分为该原因的精确损失`] : []),
-      ],
-      suggestions: losses.slice(0, 3).map((l) => `${l.reason}：${LOSS_ACTIONS[l.reason] ?? '现场核实'}`),
+      facts: scoped && focus
+        ? [
+            `${focus.line} 近 7 日 OEE ${focus.oee}% = 时间 ${focus.availability}% × 性能 ${focus.performance}% × 质量 ${focus.quality}%`,
+            ...lagging.map((f) => `${focus.line} ${f.name} ${f.value}%，低于全厂平均 ${f.plant}%`),
+            ...(focus.losses[0] ? [`${focus.line} 最大停机损失「${focus.losses[0].reason}」${Math.round(focus.losses[0].downtimeMin)} 分钟`] : []),
+          ]
+        : [
+            `近 7 日全厂 OEE ${plant}%，低于目标 ${OEE_TARGET}%（演示设定）`,
+            ...(losses[0] ? [`全厂最大损失为「${losses[0].reason}」，近 7 日停机 ${Math.round(losses[0].downtimeMin)} 分钟`] : []),
+          ],
+      pending: scoped && lagging.some((f) => f.name === '性能开动率') ? [`${focus!.line} 性能开动率偏低的原因（降速、小停机、节拍）数据中没有，需设备与工艺现场核实`] : [],
+      suggestions: scoped ? focusActions : losses.slice(0, 3).map((l) => `${l.reason}：${LOSS_ACTIONS[l.reason] ?? '现场核实'}`),
       artifacts: [
         {
           kind: 'table',
@@ -163,6 +214,10 @@ export const scheduleAgent: AgentDefinition = {
     const byLine = new Map<string, number>();
     for (const r of rows) byLine.set(r.line, (byLine.get(r.line) ?? 0) + 1);
     const changeoverTotal = rows.reduce((s, r) => s + r.changeoverMin, 0);
+    const overtime = late.length ? overtimePlan(db, now) : null;
+    const stillLate = overtime?.rows.filter((r) => r.late) ?? [];
+    const byTier = (r: (typeof late)[number]) => (r.order.tier === '战略客户' ? 0 : r.order.tier === '重点客户' ? 1 : 2);
+    const priorityLate = [...late].sort((a, b) => byTier(a) - byTier(b) || a.slackDays - b.slackDays);
     return {
       headline: late.length ? `${late.length} 张工单按当前产能会延期` : `${rows.length} 张工单都能按期完成`,
       blocks: [
@@ -178,15 +233,29 @@ export const scheduleAgent: AgentDefinition = {
           title: '排序策略对比（取加权延期最小者）',
           lines: plans.map((p) => `${STRATEGY_LABEL[p.strategy]}：延期 ${p.late} 张，加权延期 ${p.weightedLateness} 天${p.strategy === strategy ? '（采用）' : ''}`),
         },
+        {
+          title: '调线与加班',
+          lines: [
+            '调线已包含在排产中：每张工单在它的可产线里选最早完工的线',
+            ...(overtime
+              ? [`加班情景（各线每天排满 24 小时，不超过最大日产能）：延期 ${overtime.late} 张，加权 ${overtime.weightedLateness} 天${stillLate.length ? `；仍延期 ${stillLate.map((r) => `${r.order.id}（${r.order.tier}，${-r.slackDays} 天）`).join('、')}，需外协或与客户协商交期` : '，全部可按期'}`]
+              : []),
+          ],
+        },
         ...(unplaceable.length ? [{ title: '无法排入的工单', lines: unplaceable.map((o) => `${o.id}：可产线 ${o.lines.join('/')} 均无产能数据`) }] : []),
       ],
       facts: [
         `共 ${rows.length} 张工单，采用「${STRATEGY_LABEL[strategy]}」后预计延期 ${late.length} 张，换型合计 ${changeoverTotal} 分钟`,
         ...plans.slice(1).map((p) => `「${STRATEGY_LABEL[p.strategy]}」会延期 ${p.late} 张（加权 ${p.weightedLateness} 天）`),
+        ...(overtime ? [`各线排满 24 小时后仍延期 ${overtime.late} 张`] : []),
       ],
       pending: late.length ? ['排产按近 7 日 OEE 折算产能，加班、外协与插单需生产经理确认'] : [],
-      suggestions: late.slice(0, 3).map((r) => `${r.order.id}：评估改排到 ${r.order.lines.filter((l) => l !== r.line).join('/') || '其他产线'} 或加班`),
-      actions: late.slice(0, 5).map((r) => ({ title: `确认 ${r.order.id} 延期处置（加班 / 调线 / 外协）`, owner: '生产经理', due: isoDate(addDays(now, 1)) })),
+      suggestions: [
+        ...(overtime && overtime.late < late.length ? [`加班可把延期从 ${late.length} 张降到 ${overtime.late} 张，优先给 ${priorityLate.filter((r) => r.order.tier !== '一般客户').map((r) => r.order.id).join('、') || '延期工单'} 所在产线排班`] : []),
+        ...(stillLate.length ? [`${stillLate.map((r) => r.order.id).join('、')} 加班后仍延期，评估外协或与客户协商交期`] : []),
+      ],
+      // Strategic and key customers first, then the longest delays.
+      actions: priorityLate.slice(0, 5).map((r) => ({ title: `确认 ${r.order.id}（${r.order.tier}，延期 ${-r.slackDays} 天）的加班 / 外协方案`, owner: r.order.tier === '一般客户' ? '生产经理' : '生产经理与销售', due: isoDate(addDays(now, 1)) })),
       artifacts: [
         {
           kind: 'table',

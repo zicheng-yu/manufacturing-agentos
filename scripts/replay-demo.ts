@@ -1,6 +1,6 @@
 // Replays the demo storyline through the simulation bridge: `npm run replay` (add -- --fast to skip pauses).
 // Needs a running server with BRIDGE_TOKEN set; reads the same .env.
-import { storylineFor } from '../apps/server/src/seed/storyline.ts';
+import { stepBody, storylineFor } from '../apps/server/src/seed/storyline.ts';
 
 const base = process.env.AGENTOS_URL ?? `http://localhost:${process.env.API_PORT ?? 8787}`;
 const token = process.env.BRIDGE_TOKEN;
@@ -17,7 +17,7 @@ for (const [index, step] of STORYLINE.entries()) {
   const res = await fetch(`${base}${step.path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Bridge-Token': token },
-    body: JSON.stringify(step.body),
+    body: JSON.stringify(stepBody(step, new Date())),
   });
   console.log(`[${index + 1}/${STORYLINE.length}] ${step.label} → ${res.status}`);
   if (!res.ok) {

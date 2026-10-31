@@ -59,7 +59,7 @@ export const qualityModule: DomainModule = {
       threshold: 1,
       severity: 'critical',
       describe: (events) => ({ title: events.at(-1)!.title, summary: events.at(-1)!.summary }),
-      playbook: { decision: '责成致命不良全部立项 8D，并召开质委会评审', impact: '致命不良未闭环，存在批量流出与客户索赔风险', owner: '品质经理，总经理批准', dueHours: 48, weight: 3 },
+      playbook: { decision: '召开质委会评审致命不良的处置，重复不良按 CAPA 15 个工作日闭环', impact: '致命不良未闭环，存在批量流出与客户索赔风险；处置须总经理批准', owner: '品质经理组织，总经理批准', dueHours: 24, weight: 3 },
     },
     {
       id: 'quality-aoi-escape',

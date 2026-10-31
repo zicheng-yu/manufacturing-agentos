@@ -2,7 +2,7 @@ import { DOMAINS, type AgentInfo, type Conversation, type Turn } from '@agentos/
 import { MessageSquarePlus, SendHorizontal, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
-import { api, useApi } from '../api.ts';
+import { api, ApiError, postStream, useApi } from '../api.ts';
 import { Actions, Answer, Artifacts, Evidence, PolicySources, DiscoveryCards, ReferenceSource } from '../components/ResultView.tsx';
 import { useSession } from '../session.tsx';
 import { cx, DOMAIN_ICONS, Empty, scopeLabel, Spinner, timeAgo } from '../ui.tsx';
@@ -95,6 +95,8 @@ export function Agents() {
   const conversations = useApi<Conversation[]>(agent ? `/api/conversations?agentId=${agent.id}` : null);
   const detail = useApi<{ conversation: Conversation; turns: Turn[] }>(conversationId ? `/api/conversations/${conversationId}` : null);
   const [pending, setPending] = useState<string | null>(null);
+  // Answer text as the model writes it; replaced by the saved turn when the stream ends.
+  const [streamed, setStreamed] = useState('');
   const [draft, setDraft] = useState('');
   const [error, setError] = useState<string | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
@@ -108,7 +110,7 @@ export function Agents() {
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [turns.length, pending]);
+  }, [turns.length, pending, streamed.length > 0]);
 
   const groups = useMemo(() => {
     const order = ['executive', ...DOMAINS] as const;
@@ -120,13 +122,18 @@ export function Agents() {
   async function ask(question: string) {
     if (!agent || !question.trim() || pending) return;
     setPending(question);
+    setStreamed('');
     setDraft('');
     setError(null);
     try {
-      const res = await api<{ conversation: Conversation; turn: Turn }>(`/api/agents/${agent.id}/turns`, {
-        method: 'POST',
-        body: { question, conversationId, ...(!conversationId && sourceTurnId ? { sourceTurnId, sourceFindingId } : {}) },
+      const done: { result?: { conversation: Conversation; turn: Turn } } = {};
+      await postStream(`/api/agents/${agent.id}/turns`, { question, conversationId, ...(!conversationId && sourceTurnId ? { sourceTurnId, sourceFindingId } : {}) }, (event, data) => {
+        if (event === 'delta') setStreamed((text) => text + data.text);
+        else if (event === 'turn') done.result = data;
+        else if (event === 'error') throw new ApiError(500, data.error);
       });
+      const res = done.result;
+      if (!res) throw new Error('回答中断，请重试');
       if (conversationId) {
         detail.setData((prev) => (prev ? { ...prev, turns: [...prev.turns, res.turn] } : prev));
       } else {
@@ -138,6 +145,7 @@ export function Agents() {
       setDraft(question);
     } finally {
       setPending(null);
+      setStreamed('');
     }
   }
 
@@ -236,7 +244,16 @@ export function Agents() {
               <div className="flex justify-end">
                 <div className="max-w-[85%] rounded-[14px] rounded-br-sm bg-brand-600 px-4 py-2.5 text-sm text-white">{pending}</div>
               </div>
-              <Thinking />
+              {streamed ? (
+                <article className="rounded-xl border border-slate-200 bg-white p-4 md:p-[22px]">
+                  <Answer markdown={streamed} />
+                  <p className="mt-3 flex items-center gap-2 text-xs text-slate-500">
+                    <Spinner className="size-3 text-brand-600" /> 正在撰写，完成后显示事实、待核与行动项
+                  </p>
+                </article>
+              ) : (
+                <Thinking />
+              )}
             </div>
           )}
           {error && <p className="text-sm text-red-600">{error}</p>}

@@ -4,7 +4,7 @@ import type { TableArtifact } from '@agentos/shared';
 import type { Deps } from '../../core/deps.ts';
 import type { AgentContext, AgentCtx } from '../../core/module.ts';
 import { syncStateAlerts } from '../../core/state-alerts.ts';
-import { round } from '../../core/util.ts';
+import { addDays, isoDate, round } from '../../core/util.ts';
 import type { DB, Row } from '../../db.ts';
 import { cite, num, officialTable } from '../../seed/official.ts';
 import { listMaterials, listQuotes, listSuppliers, materialStatus, type Material } from './data.ts';
@@ -187,8 +187,10 @@ export function safetyCheck(m: Material & { abc?: string; safetyStock?: number }
   const basis = SAFETY_BASIS[m.abc];
   if (!basis) return null;
   const days = round(m.safetyStock / m.dailyUsage, 1);
+  // The policy's lower bound in units, so the answer can say how far the parameter is off.
+  const target = Math.ceil((m.dailyUsage * basis.min) / 100) * 100;
   return days < basis.min
-    ? `${m.code} 安全库存 ${m.safetyStock} 件只够 ${days} 天用量，低于${cite('SCM-2025-001-3.4')}的基准（${basis.label}）`
+    ? `${m.code} 安全库存 ${m.safetyStock} 件只够 ${days} 天用量，低于${cite('SCM-2025-001-3.4')}的基准（${basis.label}）；按日耗 ${m.dailyUsage} 件，下限约 ${target} 件，参数需上调约 ${target - m.safetyStock} 件`
     : null;
 }
 
@@ -244,6 +246,16 @@ export function enrichSourcing(ctx: AgentCtx, result: AgentContext): AgentContex
   const amount = (quote?.unitPrice ?? 0) * qty;
   const check = safetyCheck({ ...material, ...extra });
   const forecast = demandForecast(ctx.db, material.code);
+  // A stockout within days cannot wait for a tender: the policy's emergency route applies.
+  const urgent = material.dailyUsage > 0 && material.cover < (quote?.leadTimeDays ?? 7) + 7;
+  const emergency = urgent
+    ? [
+        `距预计断料（${material.stockoutDate ?? '—'}）约 ${round(material.cover, 1)} 天，常规招标 / 竞争性谈判来不及`,
+        `${cite('SCM-2025-001-4.2')}：紧急采购由供应链经理先批后补，24 小时内补齐书面审批`,
+        `${cite('SCM-2025-001-10.3')}：可能导致停线 2 小时以上属一级风险，现在即可由供委会牵头应急小组（催交、空运、替代认证特批、客户交期协调）`,
+        `${cite('SCM-2025-001-10.3')}：断料进入 24 小时内会停线的窗口时，再须 1 小时内上报分管副总与供委会（目前距断料约 ${round(material.cover, 1)} 天，尚未触发）`,
+      ]
+    : [];
   return {
     ...result,
     blocks: [
@@ -251,12 +263,18 @@ export function enrichSourcing(ctx: AgentCtx, result: AgentContext): AgentContex
       { title: '供应商绩效评分卡（制度 5.2）', lines: scores.map((s) => `${s.name}：综合 ${s.total}（Q ${s.q} / D ${s.d} / C ${s.c}），${s.grade}`) },
       {
         title: '采购审批路径（制度 4.1）',
-        lines: [`按一个月用量 ${qty} 件 × ${quote?.unitPrice ?? '—'} 元 ≈ ${round(amount / 10000, 1)} 万元：${approvalRoute(amount)}`],
+        lines: [`按一个月用量 ${qty} 件 × ${quote?.unitPrice ?? '—'} 元 ≈ ${round(amount / 10000, 1)} 万元：${approvalRoute(amount)}`, ...emergency],
       },
       ...(forecast ? [{ title: '需求预测', lines: [`近 6 个非促销月平均 ${forecast.baseline} 件/月${forecast.promoUplift !== null ? `，促销月平均高 ${round(forecast.promoUplift * 100, 1)}%` : ''}；最新在途 ${forecast.inTransit ?? '—'} 件（到货日期未提供，未计入可用天数）`] }] : []),
     ],
     facts: [...(result.facts ?? []), `评分卡最高：${best.name} ${best.total} 分（${best.grade}）`, ...(check ? [check] : [])],
     pending: [...(result.pending ?? []), '评分卡的服务、技术两项暂按 80 分计，需求部门评价后更新'],
+    ...(urgent
+      ? {
+          suggestions: [...(result.suggestions ?? []), `走紧急采购：供应链经理先批先下单，24 小时内补齐书面审批（制度 4.2）；同时按 10.3 启动一级断供应急`],
+          actions: [{ title: `${material.code} 紧急采购：供应链经理先批下单 ${best.name}，24 小时内补齐书面审批`, owner: '供应链经理', due: isoDate(addDays(ctx.now, 1)) }, ...(result.actions ?? [])].slice(0, 3),
+        }
+      : {}),
     artifacts: [...(result.artifacts ?? []), scorecardTable(scores)],
   };
 }
@@ -275,6 +293,31 @@ export function enrichInventory(ctx: AgentCtx, result: AgentContext): AgentConte
       return safetyCheck({ ...m, abc: String(row?.abc ?? ''), safetyStock: Number(row?.safety_stock ?? 0) });
     })
     .filter((c): c is string => c !== null);
+  // Slow-moving stock answers its own question; elsewhere it stays in the blocks without crowding the facts.
+  const staleQuestion = /呆滞|呆料|积压|不动|长期未用/.test(ctx.input);
+  const staleTable = {
+    kind: 'table' as const,
+    title: '呆滞库存（≥180 天未动用）',
+    columns: ['料号', '物料', '呆滞天数', '库存金额(万元)', 'ABC'],
+    rows: stale.map((r) => [String(r.code), String(r.name), Number(r.stale_days), round(value(r) / 10000, 1), String(r.abc)]),
+  };
+  if (staleQuestion) {
+    return {
+      headline: `${stale.length} 项物料呆滞 ≥180 天，约 ${round(staleValue / 10000, 1)} 万元，占库存总额 ${round((staleValue / total) * 100, 1)}%（目标 ≤2%）`,
+      blocks: [
+        {
+          title: '呆滞库存（≥180 天未动用，按天数）',
+          lines: stale.slice(0, 10).map((r) => `${r.code} ${r.name}：${r.stale_days} 天，${round(value(r) / 10000, 1)} 万元，${r.abc} 类`),
+        },
+        { title: '依据', lines: [`${cite('SCM-2025-001-2.6')}：呆滞库存占比目标 ≤2%`, `${cite('SCM-2025-001-6.4')}：12 个月无动用的常规料优先内部代用、改制利用（季度评审）；可退换物料发现后 60 天内协商退换；无法利用的按报废流程处置；每月发布呆滞清单并按成因责任到模块`, `${cite('SCM-2025-001-3.4')}：呆滞风险料零安全库存、冻结补库，先用旧料`] },
+      ],
+      facts: [`呆滞（≥180 天）${stale.length} 项，约 ${round(staleValue / 10000, 1)} 万元，占库存总额 ${round((staleValue / total) * 100, 1)}%`, `呆滞最久：${stale[0]?.code} ${stale[0]?.name} ${stale[0]?.stale_days} 天`],
+      pending: ['呆滞物料是否仍有在制订单或替代用途，需计划与工程确认'],
+      suggestions: ['按 3.4 将呆滞风险料冻结补库、安全库存清零，优先消耗旧料', '按 6.4：可退换的 60 天内与供应商协商退换，其余优先内部代用或改制，无法利用的走报废'],
+      actions: stale.length ? [{ title: `出具 ${stale.length} 项呆滞物料处置方案（金额最大的 ${stale.slice().sort((a, b) => value(b) - value(a)).slice(0, 3).map((r) => r.code).join('、')} 优先）`, owner: '供应链经理与财务', due: isoDate(addDays(ctx.now, 7)) }] : [],
+      artifacts: [staleTable],
+    };
+  }
   return {
     ...result,
     blocks: [
@@ -288,7 +331,8 @@ export function enrichInventory(ctx: AgentCtx, result: AgentContext): AgentConte
       },
       ...(checks.length ? [{ title: '安全库存基准（制度 3.4）', lines: checks }] : []),
     ],
-    facts: [...(result.facts ?? []), `呆滞（≥180 天）${stale.length} 项，约 ${round(staleValue / 10000, 1)} 万元`, ...checks],
+    facts: [...(result.facts ?? []), ...checks],
+    suggestions: [...(result.suggestions ?? []), ...checks.map((c) => `按制度 3.4 上调 ${c.split(' ')[0]} 的安全库存参数`)],
   };
 }
 

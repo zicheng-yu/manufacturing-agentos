@@ -16,7 +16,7 @@ export async function resolveReference(deps: Deps, account: Account, turnId: str
     createdAt: String(row.created_at), summary: '',
   };
   if (findingId) {
-    if (sourceAgent.id !== 'executive.discoveries' || !result.discoveries?.some(d => d.id === findingId)) throw new HTTPException(400, { message: '来源中没有这项数据发现' });
+    if (sourceAgent.id !== 'executive.insights' || !result.discoveries?.some(d => d.id === findingId)) throw new HTTPException(400, { message: '来源中没有这项数据发现' });
     const current = await sourceAgent.context({ db: deps.db, now: deps.clock(), input: '', history: [], account, deps });
     const finding = current.discoveries?.find(d => d.id === findingId);
     if (!finding) throw new HTTPException(409, { message: '这项发现已不适用于当前数据，请重新分析' });

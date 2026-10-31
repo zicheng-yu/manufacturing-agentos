@@ -37,13 +37,44 @@ const OUTPUT_SPEC = `只输出一个 JSON 对象，不要输出其他内容，�
 {
   "title": "不超过 20 字的标题",
   "answer": "直接回答问题的正文，Markdown，先给一句结论再给依据，不超过 300 字",
-  "facts": [],
+  "facts": ["留空；事实仅由业务分析核验后写入，新增线索请放pending"],
   "pending": ["「已识别的待核项」之外需要责任人核实的信息，最多 3 条"],
   "suggestions": ["建议，写清谁做什么，最多 3 条"],
   "actions": []
 }
-已列出的事实、待核项和行动项系统会原样展示，不要改写后重复；没有可补充的就给空数组。
+已列出的事实、待核项和行动项系统会原样展示，不要改写后重复；新增行动建议放suggestions，不会自动建待办。没有可补充的就给空数组。
 系统生成的表格会在右侧单独展示，正文引用关键数字即可，不要重画整张表。`;
+
+/**
+ * The "answer" field of a JSON object still being generated, decoded as far as it goes, so a reply can be shown
+ * while the model writes it. Reasoning blocks before the JSON are skipped.
+ */
+export function partialAnswer(raw: string): string {
+  const text = raw.includes('<think>') ? (raw.split('</think>')[1] ?? '') : raw;
+  const start = text.match(/"answer"\s*:\s*"/);
+  if (!start || start.index === undefined) return '';
+  let out = '';
+  for (let i = start.index + start[0].length; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '"') break;
+    if (ch !== '\\') {
+      out += ch;
+      continue;
+    }
+    const next = text[i + 1];
+    if (next === undefined) break;
+    if (next === 'u') {
+      const hex = text.slice(i + 2, i + 6);
+      if (hex.length < 4) break;
+      out += String.fromCharCode(parseInt(hex, 16));
+      i += 5;
+      continue;
+    }
+    out += ({ n: '\n', t: '\t', r: '', b: '', f: '' } as Record<string, string>)[next] ?? next;
+    i++;
+  }
+  return out;
+}
 
 export function renderBlocks(context: AgentContext): string {
   return context.blocks
@@ -66,13 +97,15 @@ export function buildMessages(input: {
     '规则：只依据下面提供的业务数据、本对话已确认的信息和对话历史作答，不要编造数字、日期、供应商、人名或原因；数据里没有的信息写进 pending，并在正文里直说「数据中没有」。',
     '业务数据里写着「待…」或为空的内容（例如「D4：待失效分析」），正文照实写，不得自行补全；业务数据里已经给出的数字直接引用，不要说「缺少」。',
     '问到数据里没有的物料、供应商或制度时，明确说「未收录」，不要拿别的条目顶替。',
+    '业务数据只说两件事「关联」时，不要写成因果（导致、拖累、造成、压低），也不要自行估算各自贡献；已发生的损失（如近 7 日停机分钟）与预计的风险（如预计断料日）分开说，引用数字时带上口径（近 7 日、全厂、某条线）。',
+    '只引用业务数据里出现的制度条款号；数据没给条款时不要写条款号，可写「制度依据待核」。数值为空、0 或无穷大的指标不能作为排序或结论的依据。',
     '事实、待核信息、建议要分开。',
-    '事实和待办由系统计算与登记，不自行补充 facts 或 actions。历史回答和工作记忆只是有时间的上下文，不是当前已确认事实；与本轮数据冲突时以本轮为准。跨模块共用标签只表示关联线索，不证明因果。',
+    '本轮业务数据优先于历史回答。历史事实可能过期，历史待核和建议仍未确认；不要把上一轮助手的说法当成用户批准或执行结果。',
     OUTPUT_SPEC,
   ].join('\n\n');
 
   const memory = input.memory.length
-    ? input.memory.map((m) => `- [${m.createdAt} / ${m.agentId ?? '来源'} / ${m.kind === 'fact' ? '历史计算' : m.kind === 'pending' ? '待核' : '建议'}] ${m.content}`).join('\n')
+    ? input.memory.map((m) => `- [${m.kind === 'fact' ? '历史事实' : m.kind === 'pending' ? '待核' : '建议'}；${m.createdAt}；来源${m.turnId ?? m.source}] ${m.content}`).join('\n')
     : '（暂无）';
   // Memory here is this conversation's working memory only.
   const deterministic = [
@@ -91,7 +124,7 @@ export function buildMessages(input: {
   }
   messages.push({
     role: 'user',
-    content: `${renderBlocks(input.context)}\n\n${deterministic}\n\n【本对话近期工作记忆（非当前事实）】\n${memory}\n\n【问题】\n${input.question}`,
+    content: `${renderBlocks(input.context)}\n\n${deterministic}\n\n【本对话历史记录（含未确认事项，不代表当前状态）】\n${memory}\n\n【问题】\n${input.question}`,
   });
   return messages;
 }

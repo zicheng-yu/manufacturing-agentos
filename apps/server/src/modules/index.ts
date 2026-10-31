@@ -1,5 +1,5 @@
 import { briefingAgent } from '../executive/briefing.ts';
-import { discoveryAgent } from '../executive/discoveries.ts';
+import { insightsAgent } from '../executive/insights.ts';
 import type { AgentDefinition, DomainModule } from '../core/module.ts';
 import { ehsModule } from './ehs/index.ts';
 import { hrModule } from './hr/index.ts';
@@ -11,4 +11,4 @@ import { supplyModule } from './supply/index.ts';
 /** Keep in the same order as DOMAINS in @agentos/shared. */
 export const MODULES: DomainModule[] = [productionModule, supplyModule, qualityModule, logisticsModule, ehsModule, hrModule];
 
-export const EXECUTIVE_AGENTS: AgentDefinition[] = [briefingAgent, discoveryAgent];
+export const EXECUTIVE_AGENTS: AgentDefinition[] = [briefingAgent, insightsAgent];
