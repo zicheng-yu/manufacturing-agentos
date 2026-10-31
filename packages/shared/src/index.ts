@@ -8,9 +8,13 @@ export const ROLES = ['executive', 'production_mgr', 'supply_mgr', 'quality_mgr'
 export type Role = (typeof ROLES)[number];
 
 export type Severity = 'info' | 'warn' | 'critical';
+export const SEVERITY_LABELS = { info: '提示', warn: '警告', critical: '严重' } as const;
 export type EventStatus = 'open' | 'acknowledged' | 'resolved';
 export type EventChannel = 'agent' | 'bridge' | 'replay' | 'seed' | 'manual';
-export type Level = 'normal' | 'watch' | 'alert';
+export type Level = 'normal' | 'info' | 'watch' | 'alert';
+/** Preserve the existing situation keys while using one vocabulary for all visible risk levels. */
+export const SEVERITY_TO_LEVEL = { info: 'info', warn: 'watch', critical: 'alert' } as const;
+export const LEVEL_LABELS = { normal: '正常', info: SEVERITY_LABELS.info, watch: SEVERITY_LABELS.warn, alert: SEVERITY_LABELS.critical } as const;
 
 export interface Account {
   id: string;

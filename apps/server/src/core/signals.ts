@@ -1,7 +1,7 @@
-import type { AgentOSEvent, Domain, Signal, Situation } from '@agentos/shared';
+import { SEVERITY_TO_LEVEL, type AgentOSEvent, type Domain, type Signal, type Situation } from '@agentos/shared';
 import { parseJson, type Row } from '../db.ts';
 import type { Deps } from './deps.ts';
-import { rowToEvent } from './events.ts';
+import { rowToEvent, severityRank } from './events.ts';
 import type { SignalRule } from './module.ts';
 import { addMinutes, shortHash } from './util.ts';
 
@@ -128,7 +128,8 @@ function evaluateDomainState(deps: Deps, domain: Domain): void {
 
 export function computeSituation(deps: Deps, domain: Domain): Situation {
   const module = deps.registry.module(domain);
-  const signals = listSignals(deps, [domain]);
+  const signals = listSignals(deps, [domain]).sort((a, b) => severityRank(b.severity) - severityRank(a.severity));
   const draft = module.situation({ db: deps.db, now: deps.clock(), signals });
-  return { domain, ...draft, signalIds: signals.map((s) => s.id) };
+  const level = signals[0] ? SEVERITY_TO_LEVEL[signals[0].severity] : 'normal';
+  return { domain, ...draft, level, signalIds: signals.map((s) => s.id) };
 }

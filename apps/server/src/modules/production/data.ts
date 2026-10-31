@@ -1,3 +1,4 @@
+import { SEVERITY_LABELS } from '@agentos/shared';
 import type { DB, Row } from '../../db.ts';
 import { addDays, isoDate, round } from '../../core/util.ts';
 
@@ -98,7 +99,7 @@ export interface Health {
   lastRepair: Repair | null;
   /** For each repair: when vibration first entered the warning zone in the 72 hours before it, and how often. */
   precursors: Precursor[];
-  status: '正常' | '关注' | '告警';
+  status: '正常' | '警告' | '严重';
 }
 
 export interface Precursor {
@@ -213,7 +214,7 @@ export function equipmentHealth(db: DB, recentHours = 72): Health[] {
       warnings: recent.filter((r) => (r.vibration ?? 0) >= VIBRATION_WARN && (r.vibration ?? 0) < VIBRATION_ALARM).length,
       lastRepair: mine.at(-1) ?? null,
       precursors,
-      status: recentAlarms.length ? '告警' : (latest?.vibration ?? 0) >= VIBRATION_WARN ? '关注' : '正常',
+      status: recentAlarms.length ? SEVERITY_LABELS.critical : (latest?.vibration ?? 0) >= VIBRATION_WARN ? SEVERITY_LABELS.warn : '正常',
     };
   });
 }

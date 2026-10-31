@@ -1,4 +1,4 @@
-import { DOMAIN_LABELS, type Domain, type Level, type Severity } from '@agentos/shared';
+import { DOMAIN_LABELS, LEVEL_LABELS, SEVERITY_LABELS, type Domain, type Level, type Severity } from '@agentos/shared';
 import { Boxes, Briefcase, Factory, HardHat, ShieldCheck, Truck, Users, type LucideIcon } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 
@@ -68,9 +68,10 @@ export function Photo({ src, alt, className, children }: { src: string; alt: str
 
 // Alert and watch differ in lightness too (dark red with white text, pale amber with dark text), not only in hue.
 const LEVEL_STYLE: Record<Level, { label: string; className: string }> = {
-  normal: { label: '正常', className: 'bg-green-100 text-green-900' },
-  watch: { label: '关注', className: 'bg-watch text-watch-ink' },
-  alert: { label: '告警', className: 'bg-alert text-white' },
+  normal: { label: LEVEL_LABELS.normal, className: 'bg-green-100 text-green-900' },
+  info: { label: LEVEL_LABELS.info, className: 'bg-slate-100 text-slate-600' },
+  watch: { label: LEVEL_LABELS.watch, className: 'bg-watch text-watch-ink' },
+  alert: { label: LEVEL_LABELS.alert, className: 'bg-alert text-white' },
 };
 
 export function LevelPill({ level }: { level: Level }) {
@@ -80,14 +81,14 @@ export function LevelPill({ level }: { level: Level }) {
 
 /** Running / backlog / alert lamp. */
 export function Lamp({ level, className }: { level: Level; className?: string }) {
-  const color = { normal: 'bg-green-600 ring-green-600/20', watch: 'bg-amber-600 ring-amber-600/20', alert: 'bg-red-600 ring-red-600/20' }[level];
-  return <span className={cx('inline-block size-2 shrink-0 rounded-full ring-[3px]', color, level === 'alert' && 'animate-pulse', className)} />;
+  const color = { normal: 'bg-green-600 ring-green-600/20', info: 'bg-slate-500 ring-slate-500/20', watch: 'bg-amber-600 ring-amber-600/20', alert: 'bg-red-600 ring-red-600/20' }[level];
+  return <span role="img" aria-label={LEVEL_LABELS[level]} title={LEVEL_LABELS[level]} className={cx('inline-block size-2 shrink-0 rounded-full ring-[3px]', color, level === 'alert' && 'animate-pulse', className)} />;
 }
 
 const SEVERITY_STYLE: Record<Severity, { label: string; className: string }> = {
-  info: { label: '提示', className: 'bg-slate-100 text-slate-600' },
-  warn: { label: '警告', className: 'bg-watch text-watch-ink' },
-  critical: { label: '严重', className: 'bg-alert text-white' },
+  info: { label: SEVERITY_LABELS.info, className: 'bg-slate-100 text-slate-600' },
+  warn: { label: SEVERITY_LABELS.warn, className: 'bg-watch text-watch-ink' },
+  critical: { label: SEVERITY_LABELS.critical, className: 'bg-alert text-white' },
 };
 
 export function SeverityBadge({ severity }: { severity: Severity }) {

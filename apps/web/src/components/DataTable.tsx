@@ -2,7 +2,7 @@ import type { TableArtifact } from '@agentos/shared';
 import { cx } from '../ui.tsx';
 
 const BAD = new Set(['缺料风险', '已逾期', '延迟', '停机', '严重', '未开单', 'A 致命', '淘汰', '告警']);
-const WARN = new Set(['低于安全库存', '进行中', '处理中', '招聘中', '待复核', '关注', '观察']);
+const WARN = new Set(['低于安全库存', '进行中', '处理中', '招聘中', '待复核', '警告', '关注', '观察']);
 const GOOD = new Set(['正常', '已完成', '已结案', '运行', '已到岗', '在途', '已关闭', '优选']);
 /** Material, equipment, order and task codes read better in a fixed-width face. */
 const CODE = /^[A-Z]{1,6}(-[A-Z0-9]+)+$/;
