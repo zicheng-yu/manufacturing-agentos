@@ -40,19 +40,40 @@ function Thinking() {
   );
 }
 
-/** What a specialist covers, with starter questions that open a conversation with it directly. */
+/**
+ * What a specialist covers, with starter questions that open a conversation with it directly.
+ * Clicking anywhere else on another specialist's card switches to it, like its tab in the header.
+ */
 function SpecialistCard({ agent, active, onAsk }: { agent: AgentInfo; active: boolean; onAsk: (question: string) => void }) {
   return (
-    <section className={cx('flex flex-col rounded-xl border bg-white p-4', active ? 'border-brand-300 ring-2 ring-brand-100' : 'border-slate-200')}>
+    <section
+      className={cx(
+        'group/card relative flex flex-col rounded-xl border bg-white p-4 transition-colors',
+        active ? 'border-brand-300 ring-2 ring-brand-100' : 'border-slate-200 hover:border-brand-300 hover:bg-brand-50/30 has-[a:focus-visible]:ring-2 has-[a:focus-visible]:ring-brand-200',
+      )}
+    >
       <div className="flex items-center gap-2">
-        <h3 className="text-sm font-semibold text-slate-900">{agent.name}</h3>
-        {active && <span className="rounded bg-brand-50 px-1.5 py-0.5 text-[11px] text-brand-700">当前助手</span>}
+        <h3 className="text-sm font-semibold text-slate-900">
+          {active ? (
+            agent.name
+          ) : (
+            // The link's ::after covers the card, so the whole card is the switch target.
+            <Link to={`/agents/${agent.id}`} title={`切换到${agent.name}`} className="outline-none after:absolute after:inset-0 after:rounded-xl after:content-['']">
+              {agent.name}
+            </Link>
+          )}
+        </h3>
+        {active ? (
+          <span className="rounded bg-brand-50 px-1.5 py-0.5 text-[11px] text-brand-700">当前助手</span>
+        ) : (
+          <span className="ml-auto text-[11px] text-slate-400 group-hover/card:text-brand-600">点击切换</span>
+        )}
       </div>
       <p className="mt-1 line-clamp-2 min-h-[2lh] text-xs leading-relaxed text-slate-500">{agent.description}</p>
       <ul className="mt-3 space-y-1.5">
         {agent.starters.slice(0, 3).map((s) => (
           <li key={s}>
-            <button onClick={() => onAsk(s)} className="group flex w-full items-start gap-1.5 rounded-lg bg-slate-50 px-2.5 py-2 text-left text-[13px] text-slate-700 hover:bg-brand-50 hover:text-brand-700">
+            <button onClick={() => onAsk(s)} className="group relative z-10 flex w-full items-start gap-1.5 rounded-lg bg-slate-50 px-2.5 py-2 text-left text-[13px] text-slate-700 hover:bg-brand-50 hover:text-brand-700">
               <span className="flex-1">{s}</span>
               <ArrowRight className="mt-0.5 size-3.5 shrink-0 text-slate-300 group-hover:text-brand-600" />
             </button>
