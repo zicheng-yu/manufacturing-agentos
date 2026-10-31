@@ -51,8 +51,8 @@ export function Layout() {
       end={item.to === '/'}
       className={({ isActive }) =>
         cx(
-          'flex shrink-0 items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors',
-          isActive ? 'bg-white/10 font-semibold text-white' : 'text-[#b8c3d3] hover:bg-white/6 hover:text-white',
+          'flex shrink-0 items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors',
+          isActive ? 'bg-slate-300/60 font-semibold text-slate-900' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900',
         )
       }
     >
@@ -65,31 +65,30 @@ export function Layout() {
 
   return (
     <div className="flex h-dvh min-h-0 min-w-0 flex-col md:flex-row">
-      <aside className="flex min-h-0 min-w-0 shrink-0 flex-col bg-ink-900 text-white md:w-58">
+      <aside className="flex min-h-0 min-w-0 shrink-0 flex-col border-b border-slate-200 bg-white text-slate-900 md:w-54 md:border-r md:border-b-0">
         <div className="flex items-center gap-2.5 px-4 py-4">
-          <span className="relative flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand-600">
+          <span className="relative flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white">
             <span className="num text-[22px] font-bold">D</span>
-            <span className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-sky-300" />
           </span>
           <div className="min-w-0 leading-tight">
             <div className="text-[15px] font-bold">{session.company.shortName} AgentOS</div>
-            <div className="font-mono text-[10px] tracking-[0.08em] text-[#8c9ab0]">MANUFACTURING · OS</div>
+            <div className="font-mono text-[10px] tracking-[0.08em] text-slate-400">MANUFACTURING · OS</div>
           </div>
         </div>
-        <nav aria-label="主导航" className="flex min-h-0 min-w-0 gap-0.5 overflow-x-auto px-2 pb-2 md:flex-1 md:flex-col md:overflow-x-hidden md:overflow-y-auto">
+        <nav aria-label="主导航" className="flex min-h-0 min-w-0 gap-0.5 overflow-x-auto px-2.5 pb-2 md:flex-1 md:flex-col md:overflow-x-hidden md:overflow-y-auto">
           {main.map(link)}
-          <div className="hidden px-3 pt-4 pb-1 font-mono text-[10px] tracking-[0.12em] text-[#8c9ab0] md:block">业务模块 · MODULES</div>
+          <div className="hidden px-2.5 pt-4 pb-1 font-mono text-[10px] tracking-[0.12em] text-slate-400 md:block">业务模块 · MODULES</div>
           {modules.map(link)}
-          <div className="hidden px-3 pt-4 pb-1 font-mono text-[10px] tracking-[0.12em] text-[#8c9ab0] md:block">系统 · SYSTEM</div>
+          <div className="hidden px-2.5 pt-4 pb-1 font-mono text-[10px] tracking-[0.12em] text-slate-400 md:block">系统 · SYSTEM</div>
           {system.map(link)}
         </nav>
-        <div className="hidden items-center gap-2.5 border-t border-white/10 px-4 py-3 md:flex">
-          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ink-800 text-[13px] font-bold">{session.account.displayName.slice(0, 1)}</span>
+        <div className="hidden items-center gap-2.5 border-t border-slate-200 px-4 py-3 md:flex">
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[13px] font-bold text-slate-700">{session.account.displayName.slice(0, 1)}</span>
           <div className="min-w-0 flex-1 text-xs leading-tight">
-            <div className="font-semibold">{session.account.displayName}</div>
-            <div className="text-[#8c9ab0]">{ROLE_LABELS[session.account.role]}</div>
+            <div className="font-semibold text-slate-900">{session.account.displayName}</div>
+            <div className="text-slate-500">{ROLE_LABELS[session.account.role]}</div>
           </div>
-          <button onClick={() => void logout()} aria-label="退出登录" title="退出登录" className="rounded p-1.5 text-[#8c9ab0] hover:bg-white/10 hover:text-white">
+          <button onClick={() => void logout()} aria-label="退出登录" title="退出登录" className="rounded p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-900">
             <LogOut className="size-4" />
           </button>
         </div>
@@ -100,7 +99,7 @@ export function Layout() {
           <div className="min-w-0 flex-1 truncate text-[13px] text-slate-600">
             <span className="hidden sm:inline">{session.company.name}</span>
           </div>
-          <span className="rounded-full border border-[#f5d27a] bg-amber-100 px-2.5 py-0.5 text-xs text-watch-ink" title={session.company.demoNotice}>
+          <span className="rounded-full border border-watch-line bg-watch-soft px-2.5 py-0.5 text-xs text-watch-ink" title={session.company.demoNotice}>
             演示数据
           </span>
           <span className="hidden max-w-56 truncate font-mono text-xs text-slate-600 lg:inline" title={`当前模型：${llm}`}>

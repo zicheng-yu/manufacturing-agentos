@@ -55,12 +55,19 @@ export function Section({ no, title, en, action, children, className }: { no: st
   );
 }
 
+// Keep the subject visible when the same photograph is cropped to a shallow desktop banner or a taller mobile one.
+const PHOTO_FOCUS: Record<string, string> = {
+  '/photos/quality.jpg': '62% 72%',
+  '/photos/logistics.jpg': '72% 78%',
+  '/photos/hr.jpg': '60% 32%',
+};
+
 /** A site photo over the striped placeholder, which stays visible when the photo is missing. */
 export function Photo({ src, alt, className, children }: { src: string; alt: string; className?: string; children?: ReactNode }) {
   const [failed, setFailed] = useState(false);
   return (
     <div className={cx('photo-slot relative overflow-hidden', className)}>
-      {!failed && <img src={src} alt={alt} onError={() => setFailed(true)} className="absolute inset-0 size-full object-cover" />}
+      {!failed && <img src={src} alt={alt} onError={() => setFailed(true)} className="absolute inset-0 size-full object-cover" style={{ objectPosition: PHOTO_FOCUS[src] ?? '50% 50%' }} />}
       {children}
     </div>
   );
@@ -81,7 +88,7 @@ export function LevelPill({ level }: { level: Level }) {
 
 /** Running / backlog / alert lamp. */
 export function Lamp({ level, className }: { level: Level; className?: string }) {
-  const color = { normal: 'bg-green-600 ring-green-600/20', info: 'bg-slate-500 ring-slate-500/20', watch: 'bg-amber-600 ring-amber-600/20', alert: 'bg-red-600 ring-red-600/20' }[level];
+  const color = { normal: 'bg-ok ring-ok/20', info: 'bg-slate-400 ring-slate-400/20', watch: 'bg-watch-bar ring-watch-bar/30', alert: 'bg-alert ring-alert/25' }[level];
   return <span role="img" aria-label={LEVEL_LABELS[level]} title={LEVEL_LABELS[level]} className={cx('inline-block size-2 shrink-0 rounded-full ring-[3px]', color, level === 'alert' && 'animate-pulse', className)} />;
 }
 

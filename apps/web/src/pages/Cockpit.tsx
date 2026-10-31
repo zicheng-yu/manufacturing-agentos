@@ -76,7 +76,7 @@ function DecisionCards({ table }: { table: TableArtifact }) {
               <Clock className="mt-px size-3.5 shrink-0 text-slate-400" />
               {row[col('建议完成时间')]}
             </div>
-            <div className="flex gap-1.5 text-red-700">
+            <div className="flex gap-1.5 text-alert-ink">
               <Radio className="mt-px size-3.5 shrink-0 text-red-600" />
               {row[col('依据信号')]}
             </div>
@@ -136,7 +136,7 @@ function Briefing({ turn, onRun, running, executive }: { turn: Turn | null; onRu
           </div>
           {decisions && <DecisionCards table={decisions} />}
           {links.length > 0 && (
-            <div className="rounded-[10px] border border-[#f5d27a] bg-[#fff8e6] p-3">
+            <div className="rounded-[10px] border border-watch-line bg-watch-soft p-3">
               <div className="mb-1 flex items-center gap-1.5 font-mono text-[11px] tracking-[0.12em] text-watch-ink">
                 <Link2 className="size-3.5" />
                 跨部门关联 · LINKS
@@ -211,9 +211,9 @@ export function Cockpit() {
     <div className="mx-auto max-w-[1360px] space-y-7 px-4 pt-5 pb-10 md:px-7 md:pt-6">
       <Photo src="/photos/hero.jpg" alt="工厂产线实景" className="flex min-h-[300px] flex-wrap rounded-[14px] text-white">
         <div className="relative flex flex-[3_1_480px] flex-col gap-4 bg-ink-900/80 px-6 py-8 md:px-10 md:py-9">
-          <span className="font-mono text-[11px] tracking-[0.14em] text-sky-300">{session?.company.shortName ?? ''} · FACTORY OPERATIONS</span>
+          <span className="font-mono text-[11px] tracking-[0.14em] text-brand-300">{session?.company.shortName ?? ''} · FACTORY OPERATIONS</span>
           <h1 className="text-[30px] leading-tight font-bold md:text-4xl">
-            厂区经营态势 <span className="text-sky-300">·</span> 实时
+            厂区经营态势 <span className="text-brand-300">·</span> 实时
           </h1>
           <p className="max-w-[540px] text-sm leading-relaxed text-slate-300">
             设备读数、AGV 任务和一线事件实时上报，按规则聚合为经理层信号，再汇总为下方 {data.situations.length} 张态势卡。点击任意卡片或信号，可以下钻到原始事件。
@@ -229,18 +229,18 @@ export function Cockpit() {
           <span className="mt-auto pt-2 text-[11px] text-slate-400">{session?.company.demoNotice}</span>
         </div>
         <div className="relative flex flex-[2_1_320px] items-center justify-center p-6">
-          <div className="flex w-full max-w-[360px] flex-col gap-3.5 rounded-xl bg-brand-600 p-5.5">
-            <span className="font-mono text-[11px] tracking-[0.12em] text-brand-100">各模块态势 · 已上卷</span>
+          <div className="flex w-full max-w-[360px] flex-col gap-3.5 rounded-xl border border-slate-200 bg-white p-5.5 text-slate-900 shadow-lg">
+            <span className="font-mono text-[11px] tracking-[0.12em] text-slate-500">各模块态势 · 已上卷</span>
             <div className="flex items-baseline gap-2.5">
-              <span className="num text-[64px] leading-none font-bold">
+              <span className={cx('num text-[64px] leading-none font-bold', alerting.length ? 'text-alert-ink' : 'text-slate-900')}>
                 {alerting.length}
-                <span className="text-[32px] text-brand-100"> / {data.situations.length}</span>
+                <span className="text-[32px] text-slate-400"> / {data.situations.length}</span>
               </span>
-              <span className="text-sm">严重风险模块</span>
+              <span className="text-sm text-slate-600">严重风险模块</span>
             </div>
             <div className="grid grid-cols-2 gap-2">
               {data.situations.map((x) => (
-                <Link key={x.domain} to={`/m/${x.domain}`} className="flex items-center gap-2 rounded-lg bg-white/12 px-2.5 py-2 text-[13px] hover:bg-white/20">
+                <Link key={x.domain} to={`/m/${x.domain}`} className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-2 text-[13px] text-slate-800 hover:border-slate-300 hover:bg-slate-100">
                   <Lamp level={x.level} />
                   {DOMAIN_LABELS[x.domain]}
                 </Link>
@@ -253,7 +253,7 @@ export function Cockpit() {
                   document.getElementById('briefing')?.scrollIntoView({ behavior: 'smooth' });
                 }}
                 disabled={running}
-                className="flex h-11 items-center justify-center gap-2 rounded-lg bg-white text-sm font-semibold text-ink-900 hover:bg-slate-100 disabled:opacity-70"
+                className="flex h-11 items-center justify-center gap-2 rounded-lg bg-brand-600 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-70"
               >
                 {running ? <Spinner className="size-4" /> : <Sparkles className="size-4" />}
                 生成今日决策简报

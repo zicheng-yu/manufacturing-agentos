@@ -1,6 +1,6 @@
 import { DOMAIN_LABELS, type ActionItem, type CaseDetail as Detail, type CaseEntry, type Domain } from '@agentos/shared';
 import { ArrowLeft, CheckCircle2, CircleHelp, Lightbulb, Plus, Send, ShieldCheck } from 'lucide-react';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router';
 import { api, ApiError } from '../api.ts';
 import { DataTable } from '../components/DataTable.tsx';
@@ -20,7 +20,7 @@ const KIND_STYLE: Record<CaseEntry['kind'], string> = {
   action: 'bg-amber-100 text-amber-900',
   receipt: 'bg-green-100 text-green-900',
   verification: 'bg-ink-900 text-white',
-  reference: 'bg-purple-100 text-purple-900',
+  reference: 'bg-slate-200 text-slate-800',
 };
 
 function Part({ no, title, en, children, action }: { no: string; title: string; en: string; children: ReactNode; action?: ReactNode }) {
@@ -36,6 +36,58 @@ function Part({ no, title, en, children, action }: { no: string; title: string; 
       {children}
     </section>
   );
+}
+
+/** A long assistant answer shows its opening and folds the rest, so the case's state and checks stay in view. */
+function Clamp({ children, height = 200 }: { children: ReactNode; height?: number }) {
+  const box = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [tall, setTall] = useState(false);
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const measure = () => setTall(el.scrollHeight > height + 32);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [height]);
+  const folded = tall && !open;
+  return (
+    <div>
+      <div ref={box} className="relative overflow-hidden" style={folded ? { maxHeight: height } : undefined}>
+        {children}
+        {folded && <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-white to-transparent" />}
+      </div>
+      {tall && (
+        <button type="button" aria-expanded={open} onClick={() => setOpen((v) => !v)} className="mt-1.5 text-xs font-medium text-brand-700 hover:underline">
+          {open ? '收起完整分析' : '展开完整分析'}
+        </button>
+      )}
+    </div>
+  );
+}
+
+const STEP_STYLE = { info: 'border-brand-500 bg-brand-50 text-brand-800', warn: 'border-amber-500 bg-watch-soft text-watch-ink', good: 'border-green-600 bg-green-50 text-green-900' } as const;
+
+/** One sentence on what happens next, so whoever is presenting or reviewing is never left guessing. */
+function nextStep(detail: Detail): { tone: keyof typeof STEP_STYLE; text: string } {
+  const { summary: s, entries } = detail;
+  const actions = entries.filter((e) => e.kind === 'action');
+  const waiting = actions.filter((a) => !entries.some((r) => r.kind === 'receipt' && r.data.actionEntryId === a.id)).length;
+  if (s.status === 'verified') {
+    if (s.needsReview) return { tone: 'warn', text: '验证之后又出现了新证据，已验证的结论需要复核。原验证记录已保留；负责人可重新开启下一轮处置。' };
+    return detail.lesson
+      ? { tone: 'good', text: '已验证，经验卡已保存，类似事项可以引用它作参考（引用不替代它们自己的验证）。' }
+      : { tone: 'good', text: '已验证。负责人可以把有效的做法连同适用条件保存为经验卡。' };
+  }
+  if (!detail.canManage) return { tone: 'info', text: `由 ${s.owner.name} 推进下一步；你可以请助手分析、提交回执，或把相关信号加入事项。` };
+  if (s.status === 'pending') return { tone: 'info', text: '下一步：请一位助手接力分析，或直接登记一项处置；确认第一项处置后进入「处理中」。' };
+  if (s.status === 'verifying') return { tone: 'warn', text: '下一步：验证。涉及库存的事项可由系统按当前数据重算；无法重算时由负责人人工核验，并写明判据和证据来源。' };
+  if (waiting > 0) return { tone: 'warn', text: `下一步：还有 ${waiting} 项处置没有回执。回执只说明做过了，不代表问题已经消失。` };
+  return actions.length
+    ? { tone: 'info', text: '下一步：处置都有回执了，提交验证，看问题是否真的消失。' }
+    : { tone: 'info', text: '下一步：确认助手给出的行动项，或直接登记一项处置。' };
 }
 
 function Lines({ icon: Icon, label, items, tone }: { icon: typeof CheckCircle2; label: string; items: string[]; tone: string }) {
@@ -62,7 +114,7 @@ function EntryCard({ entry, children }: { entry: CaseEntry; children?: ReactNode
         <span className="ml-auto text-slate-400">{formatTime(entry.createdAt)}</span>
       </div>
       <h3 className="text-sm font-semibold text-slate-900">{entry.title}</h3>
-      {entry.kind === 'analysis' ? <Answer markdown={entry.body} /> : entry.body && <p className="text-sm leading-relaxed whitespace-pre-wrap text-slate-700">{entry.body}</p>}
+      {entry.kind === 'analysis' ? <Clamp><Answer markdown={entry.body} /></Clamp> : entry.body && <p className="text-sm leading-relaxed whitespace-pre-wrap text-slate-700">{entry.body}</p>}
       {Array.isArray(entry.data.basis) && (
         <p className="text-xs text-amber-900">关联依据：{(entry.data.basis as string[]).join('；')}（共同实体或标签只是线索，不代表已验证的因果）</p>
       )}
@@ -78,7 +130,7 @@ function EntryCard({ entry, children }: { entry: CaseEntry; children?: ReactNode
       )}
       <div className="grid gap-2 md:grid-cols-3">
         <Lines icon={CheckCircle2} label="事实" items={entry.facts} tone="border-slate-200 bg-slate-50" />
-        <Lines icon={CircleHelp} label="待核" items={entry.pending} tone="border-[#f5d27a] bg-[#fff8e6]" />
+        <Lines icon={CircleHelp} label="待核" items={entry.pending} tone="border-watch-line bg-watch-soft" />
         <Lines icon={Lightbulb} label="建议" items={entry.suggestions} tone="border-green-200 bg-green-50" />
       </div>
       {entry.artifacts.map((t) => (
@@ -137,6 +189,7 @@ export function CaseDetailPage() {
   const work = detail.entries.filter((e) => ['analysis', 'action', 'receipt'].includes(e.kind));
   const checks = detail.entries.filter((e) => e.kind === 'verification');
   const locked = s.status === 'verified';
+  const step = nextStep(detail);
 
   return (
     <div className="mx-auto max-w-5xl space-y-6 p-4 md:p-6">
@@ -151,6 +204,7 @@ export function CaseDetailPage() {
         </div>
         <h1 className="text-lg font-bold text-slate-900">{s.goal}</h1>
         <StatusPath status={s.status} round={s.round} />
+        <p role="status" className={cx('rounded-r-lg border-l-4 px-3 py-2 text-sm leading-relaxed', STEP_STYLE[step.tone])}>{step.text}</p>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-600">
           <span>负责人：{s.owner.name}（{s.owner.title}）</span>
           <span>你的身份：{session?.account.displayName}{detail.canManage ? '（可管理本事项）' : '（可参与分析与回执）'}</span>
@@ -261,7 +315,7 @@ export function CaseDetailPage() {
         )}
         {locked && <LessonPanel detail={detail} busy={!!busy} onSave={(body) => act('lesson', 'lesson', body)} />}
         {detail.similarLessons.length > 0 && !locked && (
-          <Card title={<span className="flex items-center gap-1.5 text-sm"><ShieldCheck className="size-4 text-purple-700" />类似事项的已验证经验（供参考）</span>}>
+          <Card title={<span className="flex items-center gap-1.5 text-sm"><ShieldCheck className="size-4 text-slate-600" />类似事项的已验证经验（供参考）</span>}>
             <ul className="divide-y divide-slate-100">
               {detail.similarLessons.map((l) => {
                 const used = detail.entries.some((e) => e.kind === 'reference' && e.data.lessonId === l.id);
@@ -372,7 +426,7 @@ function LessonPanel({ detail, busy, onSave }: { detail: Detail; busy: boolean; 
   const lesson = detail.lesson;
   if (lesson) {
     return (
-      <Card title={<span className="flex items-center gap-1.5 text-sm"><ShieldCheck className="size-4 text-purple-700" />已沉淀的经验卡</span>}>
+      <Card title={<span className="flex items-center gap-1.5 text-sm"><ShieldCheck className="size-4 text-slate-600" />已沉淀的经验卡</span>}>
         <dl className="space-y-1.5 p-4 text-sm text-slate-700">
           <div><dt className="inline font-semibold">对象/症状：</dt><dd className="inline">{lesson.symptom}</dd></div>
           <div><dt className="inline font-semibold">适用条件：</dt><dd className="inline">{lesson.conditions}</dd></div>

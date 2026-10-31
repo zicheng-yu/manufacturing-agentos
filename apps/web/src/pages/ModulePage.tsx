@@ -66,7 +66,7 @@ export function ModulePage() {
             <Icon className="size-5" />
           </div>
           <div className="min-w-0 flex-1">
-            <span className="font-mono text-[11px] tracking-[0.14em] text-sky-300">MODULE · {domain.toUpperCase()}</span>
+            <span className="font-mono text-[11px] tracking-[0.14em] text-brand-300">MODULE · {domain.toUpperCase()}</span>
             <h1 className="mt-1 text-[26px] leading-tight font-bold">{module.name}</h1>
             <p className="mt-1 max-w-2xl text-sm text-slate-300">{module.description}</p>
           </div>
