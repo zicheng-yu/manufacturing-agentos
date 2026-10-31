@@ -284,7 +284,7 @@ export function Cockpit() {
             {data.events.length ? (
               <ul className="max-h-[520px] divide-y divide-slate-100 overflow-y-auto">
                 {data.events.map((e) => (
-                  <EventRow key={e.id} event={e} flashing={flashing(e.id)} onStatus={(ev, st) => void setEventStatus(ev, st)} />
+                  <EventRow key={e.id} event={e} flashing={flashing(e.id)} onStatus={setEventStatus} />
                 ))}
               </ul>
             ) : (

@@ -15,6 +15,23 @@ async function ask(env: ReturnType<typeof setup>, cookie: string, agentId: strin
 }
 
 describe('official dataset', () => {
+  it('reports a replacement alert when resolving a record whose business condition still holds', async () => {
+    const env = official();
+    try {
+      const cookie = await env.login('production');
+      const before = (await env.get('/api/events?domain=production&status=unresolved', cookie)).body;
+      const original = before.find((e: any) => e.payload.alertKey !== undefined);
+      const changed = await env.send('PATCH', `/api/events/${original.id}`, { status: 'resolved' }, { Cookie: cookie });
+      expect(changed.body.status).toBe('resolved');
+      expect(changed.body.activeEvent.id).not.toBe(original.id);
+      expect(changed.body.activeEvent.title).toBe(original.title);
+      expect(changed.body.activeEvent.status).toBe('open');
+      const remaining = (await env.get('/api/events?domain=production&status=unresolved', cookie)).body;
+      expect(remaining.some((e: any) => e.id === original.id)).toBe(false);
+      expect(remaining.some((e: any) => e.id === changed.body.activeEvent.id)).toBe(true);
+    } finally { env.deps.db.close(); }
+  });
+
   it('puts every module on the official figures', async () => {
     const env = official();
     const cookie = await env.login('chairman');

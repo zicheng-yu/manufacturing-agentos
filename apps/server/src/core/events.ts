@@ -169,7 +169,8 @@ export function listEvents(
     params.push(filter.status);
   }
   const priority = filter.sort === 'severity' ? "CASE severity WHEN 'critical' THEN 2 WHEN 'warn' THEN 1 ELSE 0 END DESC, " : '';
-  sql += ` ORDER BY ${priority}last_seen_at DESC, id DESC LIMIT ${Math.min(filter.limit ?? 50, 500)}`;
+  const resolvedLast = !filter.status ? "CASE WHEN status = 'resolved' THEN 1 ELSE 0 END ASC, " : '';
+  sql += ` ORDER BY ${resolvedLast}${priority}last_seen_at DESC, id DESC LIMIT ${Math.min(filter.limit ?? 50, 500)}`;
   return (deps.db.prepare(sql).all(...params) as Row[]).map((row) => rowToEvent(deps, row));
 }
 

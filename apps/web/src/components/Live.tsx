@@ -78,18 +78,32 @@ export function EventRow({
   event,
   flashing,
   onStatus,
+  renewed,
 }: {
   event: AgentOSEvent;
   flashing?: boolean;
-  onStatus?: (event: AgentOSEvent, status: AgentOSEvent['status']) => void;
+  onStatus?: (event: AgentOSEvent, status: AgentOSEvent['status']) => void | Promise<void>;
+  renewed?: boolean;
 }) {
+  const [pending, setPending] = useState<AgentOSEvent['status'] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  async function changeStatus(next: AgentOSEvent['status']) {
+    if (!onStatus || pending) return;
+    setPending(next);
+    setError(null);
+    try { await onStatus(event, next); }
+    catch (e) { setError((e as Error).message || '操作失败，请重试'); }
+    finally { setPending(null); }
+  }
   return (
-    <li className={cx('flex gap-3 px-4 py-2.5', flashing && 'slide-in bg-red-50/60', event.status === 'resolved' && 'opacity-50')}>
+    <li id={`event-${event.id}`} aria-busy={!!pending} className={cx('flex gap-3 px-4 py-2.5 transition-colors', flashing && 'slide-in bg-red-50/60', event.status === 'resolved' && 'bg-slate-50')}>
       <SeverityBadge severity={event.severity} />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <span className="text-sm font-medium text-slate-800">{event.title}</span>
           {event.count > 1 && <span className="rounded bg-slate-800 px-1.5 text-[11px] font-medium text-white">×{event.count}</span>}
+          {event.status === 'resolved' && <span className="rounded bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">✓ 已解决</span>}
+          {renewed && <span className="rounded bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900">问题仍存在 · 新预警</span>}
         </div>
         {event.summary && <p className="mt-0.5 text-xs leading-relaxed text-slate-500">{event.summary}</p>}
         <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
@@ -98,18 +112,19 @@ export function EventRow({
           <span>{CHANNEL_LABELS[event.source.channel] ?? event.source.channel}</span>
           {event.source.actor && <span>{event.source.actor}</span>}
           <span title={formatTime(event.lastSeenAt)}>{timeAgo(event.lastSeenAt)}</span>
-          {event.status !== 'open' && <span>{event.status === 'acknowledged' ? '已确认' : '已解决'}</span>}
+          {event.status === 'acknowledged' && <span>已确认</span>}
         </div>
+        {error && <p role="alert" className="mt-1 text-xs text-red-700">操作失败：{error}，请重试。</p>}
       </div>
       {onStatus && event.status !== 'resolved' && (
         <div className="flex shrink-0 items-start gap-1">
           {event.status === 'open' && (
-            <button onClick={() => onStatus(event, 'acknowledged')} className="rounded border border-slate-200 px-2 py-0.5 text-xs text-slate-600 hover:bg-slate-50">
-              确认
+            <button disabled={!!pending} onClick={() => void changeStatus('acknowledged')} className="rounded border border-slate-200 px-2 py-0.5 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50">
+              {pending === 'acknowledged' ? '确认中…' : '确认'}
             </button>
           )}
-          <button onClick={() => onStatus(event, 'resolved')} className="rounded border border-slate-200 px-2 py-0.5 text-xs text-slate-600 hover:bg-slate-50">
-            解决
+          <button disabled={!!pending} onClick={() => void changeStatus('resolved')} className="rounded border border-slate-200 px-2 py-0.5 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50">
+            {pending === 'resolved' ? '解决中…' : '解决'}
           </button>
         </div>
       )}

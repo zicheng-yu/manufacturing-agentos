@@ -23,6 +23,9 @@ describe('accounts and permissions', () => {
       expect((await env.get(`${base}&sort=severity`, cookie)).body[0].id).toBe(urgent.id);
       await env.send('PATCH', `/api/events/${urgent.id}`, { status: 'resolved' }, { Cookie: cookie });
       expect((await env.get(`${base}&sort=severity`, cookie)).body[0].id).toBe(warning.id);
+      const all = (await env.get('/api/events?domain=logistics&sort=severity', cookie)).body;
+      expect(all.at(-1).id).toBe(urgent.id);
+      expect(all.at(-1).status).toBe('resolved');
       expect((await env.get('/api/events?domain=logistics&sort=severity', await env.login('quality'))).body).toEqual([]);
     } finally { env.deps.db.close(); }
   });
