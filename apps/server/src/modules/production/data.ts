@@ -181,6 +181,7 @@ export function equipmentHealth(db: DB, recentHours = 72): Health[] {
     const recent = series.slice(-recentHours);
     const recentAlarms = recent.filter((r) => (r.vibration ?? 0) >= VIBRATION_ALARM);
     const mine = repairs.filter((r) => r.equipmentId === equipment.id);
+    const triggers = warningTriggers(series);
     const precursors = mine
       .map((repair): Precursor | null => {
         const failedAt = parseStamp(repair.occurredAt);
@@ -188,7 +189,8 @@ export function equipmentHealth(db: DB, recentHours = 72): Health[] {
           const t = parseStamp(r.ts);
           return t < failedAt && failedAt - t <= PRECURSOR_HOURS * 3600_000 && (r.vibration ?? 0) >= VIBRATION_WARN;
         });
-        const confirmed = warningTrigger(window);
+        // Match actual alert transitions from the full series; do not restart the rule at a future failure's lookback boundary.
+        const confirmed = triggers.find(r => { const t = parseStamp(r.ts); return t < failedAt && failedAt - t <= PRECURSOR_HOURS * 3600_000; });
         if (!confirmed) return null;
         return {
           repair,

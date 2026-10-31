@@ -28,6 +28,10 @@ describe('discoveries and explicit working-memory handoff', () => {
     const lead = equipmentHealth(env.deps.db).find(h => h.equipment.id === 'EQ-CNC-001')!.precursors[0];
     expect(lead.confirmedAt).toBe('2026-09-10 03:00');
     expect(lead.hoursAhead).toBe(2);
+    // A continuously active warning must not be restarted at a later repair's 72h lookback boundary.
+    for (let hour = 5; hour <= 100; hour++) insert.run('EQ-CNC-001', new Date(Date.UTC(2026, 8, 10, hour)).toISOString().slice(0, 16).replace('T', ' '), 3);
+    env.deps.db.prepare('INSERT INTO production_repairs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run('LATER-WO', 'EQ-CNC-001', '2026-09-14 05:00', 'test', 'pending', 10, 100, 1, 'inspect');
+    expect(equipmentHealth(env.deps.db).find(h => h.equipment.id === 'EQ-CNC-001')!.precursors.some(p => p.repair.id === 'LATER-WO')).toBe(false);
   });
 
   it('refreshes selected discoveries during handoff, checks ownership and stops quoting deleted sources', async () => {
