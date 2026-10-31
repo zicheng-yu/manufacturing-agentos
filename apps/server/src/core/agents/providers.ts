@@ -10,6 +10,8 @@ export interface LlmProvider {
   model: string | null;
   /** Returns the raw model output. Only called when mode is 'llm'. */
   complete(messages: ChatMessage[]): Promise<string>;
+  /** Same as complete, reporting the output as it is generated. */
+  stream?(messages: ChatMessage[], onText: (chunk: string) => void): Promise<string>;
 }
 
 /** Works with any OpenAI-compatible chat completions endpoint (DashScope/Qwen, DeepSeek, Moonshot…). */
@@ -23,8 +25,8 @@ export class OpenAICompatibleProvider implements LlmProvider {
     this.model = config.model;
   }
 
-  async complete(messages: ChatMessage[]): Promise<string> {
-    const response = await fetch(`${this.config.baseUrl}/chat/completions`, {
+  private request(messages: ChatMessage[], stream: boolean): Promise<Response> {
+    return fetch(`${this.config.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.config.apiKey}` },
       body: JSON.stringify({
@@ -33,12 +35,41 @@ export class OpenAICompatibleProvider implements LlmProvider {
         temperature: 0.3,
         response_format: { type: 'json_object' },
         ...(this.config.reasoningEffort && { reasoning_effort: this.config.reasoningEffort }),
+        ...(stream && { stream: true }),
       }),
       signal: AbortSignal.timeout(90_000),
     });
+  }
+
+  async complete(messages: ChatMessage[]): Promise<string> {
+    const response = await this.request(messages, false);
     if (!response.ok) throw new Error(`模型接口返回 ${response.status}：${(await response.text()).slice(0, 200)}`);
     const data = (await response.json()) as { choices?: { message?: { content?: string } }[] };
     const content = data.choices?.[0]?.message?.content;
+    if (!content) throw new Error('模型接口未返回内容');
+    return content;
+  }
+
+  async stream(messages: ChatMessage[], onText: (chunk: string) => void): Promise<string> {
+    const response = await this.request(messages, true);
+    if (!response.ok || !response.body) throw new Error(`模型接口返回 ${response.status}：${(await response.text()).slice(0, 200)}`);
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let content = '';
+    for await (const bytes of response.body) {
+      buffer += decoder.decode(bytes as Uint8Array, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      for (const line of lines) {
+        const data = line.startsWith('data:') ? line.slice(5).trim() : '';
+        if (!data || data === '[DONE]') continue;
+        const chunk = (JSON.parse(data) as { choices?: { delta?: { content?: string } }[] }).choices?.[0]?.delta?.content;
+        if (chunk) {
+          content += chunk;
+          onText(chunk);
+        }
+      }
+    }
     if (!content) throw new Error('模型接口未返回内容');
     return content;
   }

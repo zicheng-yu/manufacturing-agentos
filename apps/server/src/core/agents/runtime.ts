@@ -7,7 +7,7 @@ import { addTask, listMemoryForTurns, remember } from '../memory.ts';
 import { canUseAgent } from '../roles.ts';
 import { evaluateDomain } from '../signals.ts';
 import { isoDate, newId, normalizeText, unique } from '../util.ts';
-import { buildMessages, offlineDraft, parseModelOutput, type DraftResult } from './prompt.ts';
+import { buildMessages, offlineDraft, parseModelOutput, partialAnswer, type DraftResult } from './prompt.ts';
 
 const HISTORY_TURNS = 6;
 const MEMORY_RECORDS = 20;
@@ -68,7 +68,7 @@ export function listTurns(deps: Deps, conversationId: string): Turn[] {
 /** Run one question through an agent: analysis → model (or offline) → persist memory, tasks and events. */
 export async function runTurn(
   deps: Deps,
-  input: { account: Account; agentId: string; conversationId?: string | null; question: string },
+  input: { account: Account; agentId: string; conversationId?: string | null; question: string; onAnswer?: (text: string) => void },
 ): Promise<{ conversation: Conversation; turn: Turn }> {
   const { account } = input;
   const agent = deps.registry.agent(input.agentId);
@@ -103,17 +103,23 @@ export async function runTurn(
     draft = { ...offlineDraft(agent, context), answer: context.preparedResponse.answer };
   } else if (deps.provider.mode === 'llm') {
     try {
-      const raw = await deps.provider.complete(
-        buildMessages({
-          company: deps.company,
-          agent,
-          context,
-          memory,
-          history,
-          question,
-          today: isoDate(now),
-        }),
-      );
+      const messages = buildMessages({ company: deps.company, agent, context, memory, history, question, today: isoDate(now) });
+      let raw: string;
+      if (input.onAnswer && deps.provider.stream) {
+        // Pass on the answer text as the model writes it; the parsed result below is still what gets saved.
+        let generated = '';
+        let shown = '';
+        raw = await deps.provider.stream(messages, (chunk) => {
+          generated += chunk;
+          const answer = partialAnswer(generated);
+          if (answer.length > shown.length) {
+            input.onAnswer!(answer.slice(shown.length));
+            shown = answer;
+          }
+        });
+      } else {
+        raw = await deps.provider.complete(messages);
+      }
       draft = parseModelOutput(raw);
     } catch (error) {
       mode = 'offline';

@@ -45,6 +45,37 @@ const OUTPUT_SPEC = `只输出一个 JSON 对象，不要输出其他内容，�
 已列出的事实、待核项和行动项系统会原样展示，不要改写后重复；没有可补充的就给空数组。
 系统生成的表格会在右侧单独展示，正文引用关键数字即可，不要重画整张表。`;
 
+/**
+ * The "answer" field of a JSON object still being generated, decoded as far as it goes, so a reply can be shown
+ * while the model writes it. Reasoning blocks before the JSON are skipped.
+ */
+export function partialAnswer(raw: string): string {
+  const text = raw.includes('<think>') ? (raw.split('</think>')[1] ?? '') : raw;
+  const start = text.match(/"answer"\s*:\s*"/);
+  if (!start || start.index === undefined) return '';
+  let out = '';
+  for (let i = start.index + start[0].length; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '"') break;
+    if (ch !== '\\') {
+      out += ch;
+      continue;
+    }
+    const next = text[i + 1];
+    if (next === undefined) break;
+    if (next === 'u') {
+      const hex = text.slice(i + 2, i + 6);
+      if (hex.length < 4) break;
+      out += String.fromCharCode(parseInt(hex, 16));
+      i += 5;
+      continue;
+    }
+    out += ({ n: '\n', t: '\t', r: '', b: '', f: '' } as Record<string, string>)[next] ?? next;
+    i++;
+  }
+  return out;
+}
+
 export function renderBlocks(context: AgentContext): string {
   return context.blocks
     .map((block) => [`【${block.title}】`, ...block.lines.map((line) => `- ${line}`)].join('\n'))

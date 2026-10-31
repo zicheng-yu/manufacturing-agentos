@@ -30,10 +30,18 @@ function Group({ title, en, items, icon: Icon, tone }: { title: string; en: stri
   );
 }
 
+/**
+ * CommonMark does not close `**` after full-width punctuation when a Chinese character follows ("**结论。**其后"),
+ * so the asterisks show. Moving the punctuation outside the emphasis keeps the meaning and renders as bold.
+ */
+export function fixCjkEmphasis(markdown: string): string {
+  return markdown.replace(/\*\*([^*\n]+?)([。，；：！？、）」』”])\*\*/g, '**$1**$2');
+}
+
 export function Answer({ markdown }: { markdown: string }) {
   return (
     <div className="markdown text-sm leading-relaxed text-slate-700">
-      <Markdown remarkPlugins={[remarkGfm]}>{markdown}</Markdown>
+      <Markdown remarkPlugins={[remarkGfm]}>{fixCjkEmphasis(markdown)}</Markdown>
     </div>
   );
 }
