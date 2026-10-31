@@ -7,7 +7,7 @@ import type { DomainModule } from '../../core/module.ts';
 import { syncStateAlerts } from '../../core/state-alerts.ts';
 import { addMinutes, chinaStamp, round } from '../../core/util.ts';
 import { equipmentAgent, oeeAgent, scheduleAgent } from './agents.ts';
-import { equipmentHealth, lineOee, listEquipment, listRepairs, OEE_TARGET, plantLosses, PRECURSOR_READINGS, readings, schedule, VIBRATION_ALARM, VIBRATION_WARN } from './data.ts';
+import { equipmentHealth, lineOee, listEquipment, listRepairs, OEE_TARGET, plantLosses, readings, schedule, VIBRATION_ALARM, VIBRATION_WARN, warningTrigger } from './data.ts';
 import { seedProduction } from './seed.ts';
 
 const Reading = z.object({
@@ -159,11 +159,12 @@ export const productionModule: DomainModule = {
     // Live condition from readings in the last 24 hours (China time): a run in the warning zone is a precursor,
     // a reading past the alarm line is an alarm.
     const since = chinaStamp(addMinutes(now, -24 * 60));
+    const until = chinaStamp(now);
     const alerts = equipmentHealth(db).flatMap((h) => {
-      const recent = readings(db, h.equipment.id).filter((r) => r.ts >= since && r.vibration !== null);
+      const recent = readings(db, h.equipment.id).filter((r) => r.ts >= since && r.ts <= until && r.vibration !== null);
       const warn = recent.filter((r) => r.vibration! >= VIBRATION_WARN);
       const alarm = recent.filter((r) => r.vibration! >= VIBRATION_ALARM);
-      if (alarm.length === 0 && warn.length < PRECURSOR_READINGS) return [];
+      if (alarm.length === 0 && !warningTrigger(recent)) return [];
       const peak = Math.max(...warn.map((r) => r.vibration!));
       const history = h.precursors.length ? `；历史上该设备进入关注区后约 ${h.precursors[0].hoursAhead} 小时发生「${h.precursors[0].repair.symptom}」` : '';
       return [{

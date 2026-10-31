@@ -50,7 +50,7 @@ export const equipmentAgent: AgentDefinition = {
       {
         title: `故障前 ${PRECURSOR_HOURS} 小时的振动前兆`,
         lines: leads.length
-          ? leads.map((l) => `${l.repair.equipmentId}：${l.firstWarning} 起进入关注区（≥${VIBRATION_WARN} mm/s，${l.warningReadings} 次），${l.hoursAhead} 小时后发生「${l.repair.symptom}」（原因 ${l.repair.cause}，停机 ${l.repair.downtimeMin} 分钟）`)
+          ? leads.map((l) => `${l.repair.equipmentId}：首次关注区读数 ${l.firstWarning}，${l.confirmedAt} 满足24小时内3次关注区读数（≥${VIBRATION_WARN} mm/s），触发后 ${l.hoursAhead} 小时发生「${l.repair.symptom}」（原因 ${l.repair.cause}，停机 ${l.repair.downtimeMin} 分钟）`)
           : ['维修记录前没有出现关注区读数'],
       },
     ];
@@ -65,13 +65,13 @@ export const equipmentAgent: AgentDefinition = {
       });
     }
     return {
-      headline: avgLead !== null ? `${leads.length}/${repairs.length} 次故障前振动已进入关注区，平均提前 ${avgLead} 小时` : `${flagged.length} 台设备出现过振动超限`,
+      headline: avgLead !== null ? `故障样本回看：${leads.length}/${repairs.length} 次满足预警规则，平均提前 ${avgLead} 小时` : `${flagged.length} 台设备出现过振动超限`,
       blocks,
       facts: [
-        ...(avgLead !== null ? [`${repairs.length} 次故障中有 ${leads.length} 次在发生前 ${PRECURSOR_HOURS} 小时内振动已多次进入关注区（≥${VIBRATION_WARN} mm/s），平均提前 ${avgLead} 小时`] : []),
+        ...(avgLead !== null ? [`${repairs.length} 次故障中有 ${leads.length} 次在发生前 ${PRECURSOR_HOURS} 小时内满足24小时3次关注区读数，按第3次读数触发时间算，平均提前 ${avgLead} 小时`] : []),
         ...health.filter((h) => h.missing > 0).slice(0, 3).map((h) => `${h.equipment.id} 缺失 ${h.missing} 条读数`),
       ],
-      pending: ['前兆与故障的对应基于时间先后，需设备工程师结合维修报告确认因果'],
+      pending: ['前兆与故障的对应基于故障样本回看，未评估无故障时段的误报率，不能代表预测准确率或未来全覆盖；需设备工程师结合维修报告确认因果'],
       suggestions: [
         `24 小时内 ≥${PRECURSOR_READINGS} 次读数进入关注区（≥${VIBRATION_WARN} mm/s）即派点检单，按历史可提前约 ${avgLead ?? '—'} 小时处置；≥${VIBRATION_ALARM} mm/s 立即停机检查`,
         '缺失读数较多的设备先检查传感器与采集网关',

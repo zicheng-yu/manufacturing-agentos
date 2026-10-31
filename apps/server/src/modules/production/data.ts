@@ -104,6 +104,7 @@ export interface Health {
 export interface Precursor {
   repair: Repair;
   firstWarning: string;
+  confirmedAt: string;
   hoursAhead: number;
   warningReadings: number;
 }
@@ -113,7 +114,22 @@ export const PRECURSOR_HOURS = 72;
 /** Readings in the warning zone within 24 hours that make a live precursor alert. */
 export const PRECURSOR_READINGS = 3;
 
-const parseStamp = (ts: string) => Date.parse(ts.replace(' ', 'T') + ':00+08:00');
+export function parseStamp(ts: string): number {
+  const iso = ts.replace(' ', 'T');
+  return Date.parse(/(?:Z|[+-]\d\d:\d\d)$/.test(iso) ? iso : `${iso}+08:00`);
+}
+
+/** First timestamp when 3 distinct observations in a trailing 24h window meet the warning threshold. */
+export function warningTrigger(series: Reading[]): Reading | null {
+  const points = [...new Map(series.filter((r) => r.vibration !== null && r.vibration >= VIBRATION_WARN).map((r) => [parseStamp(r.ts), r])).values()]
+    .filter((r) => Number.isFinite(parseStamp(r.ts))).sort((a, b) => parseStamp(a.ts) - parseStamp(b.ts));
+  let start = 0;
+  for (let i = 0; i < points.length; i++) {
+    while (parseStamp(points[i].ts) - parseStamp(points[start].ts) > 24 * 3600_000) start++;
+    if (i - start + 1 >= PRECURSOR_READINGS) return points[i];
+  }
+  return null;
+}
 
 /**
  * Per-equipment condition from the hourly sensor series: a robust baseline (median), readings past the ISO alarm
@@ -135,11 +151,13 @@ export function equipmentHealth(db: DB, recentHours = 72): Health[] {
           const t = parseStamp(r.ts);
           return t < failedAt && failedAt - t <= PRECURSOR_HOURS * 3600_000 && (r.vibration ?? 0) >= VIBRATION_WARN;
         });
-        if (window.length < PRECURSOR_READINGS) return null;
+        const confirmed = warningTrigger(window);
+        if (!confirmed) return null;
         return {
           repair,
           firstWarning: window[0].ts,
-          hoursAhead: Math.round((failedAt - parseStamp(window[0].ts)) / 3600_000),
+          confirmedAt: confirmed.ts,
+          hoursAhead: round((failedAt - parseStamp(confirmed.ts)) / 3600_000, 1),
           warningReadings: window.length,
         };
       })
