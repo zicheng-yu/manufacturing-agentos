@@ -79,10 +79,10 @@ npm run typecheck
 
 ## 怎么加东西
 
-- **加一个智能体**：在 `modules/<id>/agents.ts` 写一个 `AgentDefinition`，`context()` 里只放能算清楚的东西，加进模块的 `agents` 数组。给它写一个测试。
+- **加一个智能体**：在 `modules/<id>/agents.ts` 写一个 `AgentDefinition`，`context()` 里只放能算清楚的东西，加进模块的 `agents` 数组。只在某个数据集有数据时写 `datasets`，示例问题按数据集不同时写 `startersByDataset`。给它写一个测试。
 - **加一类事件**：在模块的 `eventTypes` 加定义；需要上卷就再加一条 `signalRules`，写清 `playbook`。事件桥会拒绝未定义的类型。
 - **加模块数据**：在 `schema` 里建表（表名以模块 id 开头），在 `seed.ts` 写演示数据，在 `overview()` 里展示。官方素材包的表用 `seed/official.ts` 的 `officialTable()` 读取，引用制度条款用 `cite('SCM-2025-001-5.2')`，不要手写条款内容。
-- **加接口**：在模块的 `routes()` 里注册，路径自动挂在 `/api/modules/<id>/` 下。需要鉴权时用 `requireScope(c, '<id>')`，给仿真用的用 `requireBridgeToken`。
+- **加接口**：在模块的 `routes()` 里注册，路径自动挂在 `/api/modules/<id>/` 下。需要鉴权时用 `requireScope(c, '<id>')`，给外部系统上报用的用 `requireBridgeToken`。
 - **改前端模块页**：通用模块页会渲染 `overview()` 返回的指标和表格；需要专门的页面时在 `apps/web/src/pages/` 新建，并在 `main.tsx` 注册路由。
 
 ## 前端视觉
@@ -94,6 +94,6 @@ npm run typecheck
 ## PR 约定
 
 1. **先认领，再开发**：在 Linear 把对应 issue Assign 给自己、状态改为 In Progress，确认保存成功后再开分支写代码；已有负责人时先协调。一个 issue 一个分支，分支名带 issue 编号（如 `codex/you-124-hr-workflows` 或 Linear 生成的分支名），PR 标题带 issue 编号。完整流程见 [贡献指南](../CONTRIBUTING.md)。
-2. 只改自己负责的目录：模块负责人改 `modules/<id>/`，物流仿真改 `modules/logistics/` 与仿真侧代码。需要动 `core/`、`packages/shared/` 或其他模块的，在 PR 里说明原因。
+2. 只改自己负责的目录：模块负责人改 `modules/<id>/`。需要动 `core/`、`packages/shared/` 或其他模块的，在 PR 里说明原因。
 3. 合并前 `npm test` 与 `npm run typecheck` 必须通过；两条演示主线测试（`test/platform.test.ts` 的 demo storyline、`test/official.test.ts` 的线束03 主线）不能被改坏。
 4. 业务数据只用官方素材包或虚构数据；不要提交真实客户、员工信息，不要提交 `.env`。

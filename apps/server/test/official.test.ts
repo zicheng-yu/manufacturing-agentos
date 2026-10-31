@@ -29,6 +29,18 @@ describe('official dataset', () => {
     expect(titles.some((t) => t.includes('AOI 漏检率'))).toBe(true);
   });
 
+  it('offers only agents with records in the pack, with questions about its records', async () => {
+    const env = official();
+    const cookie = await env.login('chairman');
+    const catalog = await env.get<{ agents: { id: string; starters: string[] }[] }>('/api/catalog', cookie);
+    const ids = catalog.body.agents.map((a) => a.id);
+    expect(ids).toContain('logistics.agv');
+    for (const fixtureOnly of ['quality.complaint', 'quality.capa', 'logistics.site']) expect(ids).not.toContain(fixtureOnly);
+    expect(catalog.body.agents.find((a) => a.id === 'supply.sourcing')?.starters[0]).toBe('线束快断货了，几家供应商怎么选？');
+    const hidden = await env.send('POST', '/api/agents/logistics.site/turns', { question: '现在哪个工位有问题？' }, { Cookie: cookie });
+    expect(hidden.status).toBe(404);
+  });
+
   it('answers with the regulations and the pack figures', async () => {
     const env = official();
     const cookie = await env.login('chairman');

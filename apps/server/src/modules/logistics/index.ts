@@ -7,7 +7,7 @@ import { percent, round } from '../../core/util.ts';
 import { siteAgent } from './agents.ts';
 import { listStations, recordMetrics, stationStats, totals, worstStation } from './data.ts';
 import { logisticsSeedEvents, seedLogistics } from './seed.ts';
-import { AGV_SCHEMA, agvAgent, agvSummary, hasAgv, seedAgv, syncAgvAlerts } from './agv.ts';
+import { AGV_SCHEMA, AGV_TARGET, agvAgent, agvSummary, hasAgv, seedAgv, syncAgvAlerts } from './agv.ts';
 
 const count = z.number().int().min(0).optional();
 const MetricsBody = z.object({
@@ -28,7 +28,7 @@ const stationGroup = (e: { source: { station?: string } }) => e.source.station ?
 export const logisticsModule: DomainModule = {
   id: 'logistics',
   name: '智能物流',
-  description: '混合料箱识别、抓取、码垛现场看板与异常处理',
+  description: 'AGV 调度与厂内配送：按时率、超时车辆与线路、现场异常',
   schema: `
     CREATE TABLE IF NOT EXISTS logistics_stations (id TEXT PRIMARY KEY, zone TEXT NOT NULL, kind TEXT NOT NULL, status TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS logistics_bin_types (
@@ -43,10 +43,10 @@ export const logisticsModule: DomainModule = {
     );
     CREATE INDEX IF NOT EXISTS logistics_metrics_ts ON logistics_metrics(station_id, ts);
     ${AGV_SCHEMA}`,
-  // Palletizing stations stay for the simulation bridge; the official pack adds AGV dispatch history.
+  // The official pack covers AGV dispatch; palletizing stations exist only in the fictional fixtures.
   seed(ctx) {
-    seedLogistics(ctx);
     if (ctx.dataset === 'official') seedAgv(ctx.db);
+    else seedLogistics(ctx);
   },
   seedEvents: logisticsSeedEvents,
   beforeEvaluate: syncAgvAlerts,
@@ -152,50 +152,71 @@ export const logisticsModule: DomainModule = {
   ],
 
   situation({ db, signals }) {
+    const level: Level = signals.some((s) => s.severity === 'critical') ? 'alert' : signals.length ? 'watch' : 'normal';
+    const top = signals.find((s) => s.severity === 'critical') ?? signals[0];
+    if (hasAgv(db)) {
+      const agv = agvSummary(db);
+      const worst = agv.byAgv[0];
+      return {
+        title: '厂内物流',
+        level,
+        headline: top ? top.title : 'AGV 调度运行正常',
+        metrics: [
+          { label: 'AGV 按时率', value: percent(agv.onTime, 1), tone: agv.onTime < AGV_TARGET ? 'bad' : 'good' },
+          { label: `${worst.key} 超时`, value: percent(worst.rate, 1), tone: worst.rate > 1 - AGV_TARGET ? 'bad' : 'good' },
+          { label: '平均等待', value: agv.avgWait, unit: '秒', tone: 'neutral' },
+        ],
+      };
+    }
     // Latest report per station: the card shows what is happening now, not an hour's average.
     const latest = stationStats(db, 1);
     const t = totals(latest);
     const worst = worstStation(latest);
     const worstRate = worst ? (worst.picks - worst.pickFailures) / worst.picks : 1;
-    const level: Level = signals.some((s) => s.severity === 'critical') ? 'alert' : signals.length ? 'watch' : 'normal';
-    const top = signals.find((s) => s.severity === 'critical') ?? signals[0];
     return {
       title: '厂内物流',
       level,
       headline: top ? top.title : '识别、抓取、码垛运行正常',
       metrics: [
-        ...(hasAgv(db)
-          ? [{ label: 'AGV 按时率', value: percent(agvSummary(db).onTime, 1), tone: agvSummary(db).onTime < 0.95 ? ('bad' as const) : ('good' as const) }]
-          : []),
         worst && worstRate < 0.97
-          ? { label: `${worst.station} 抓取`, value: percent(worst.picks - worst.pickFailures, worst.picks), tone: 'bad' as const }
-          : { label: '实时抓取成功率', value: percent(t.picks - t.pickFailures, t.picks), tone: 'good' as const },
-        { label: '入库积压', value: t.backlog, unit: '箱', tone: t.backlog > 30 ? ('bad' as const) : ('good' as const) },
+          ? { label: `${worst.station} 抓取`, value: percent(worst.picks - worst.pickFailures, worst.picks), tone: 'bad' }
+          : { label: '实时抓取成功率', value: percent(t.picks - t.pickFailures, t.picks), tone: 'good' },
+        { label: '码垛合规率', value: percent(t.placements - t.placementInvalid, t.placements), tone: 'neutral' },
+        { label: '入库积压', value: t.backlog, unit: '箱', tone: t.backlog > 30 ? 'bad' : 'good' },
       ],
     };
   },
 
+
   overview({ db }) {
+    if (hasAgv(db)) {
+      const agv = agvSummary(db);
+      return {
+        metrics: [
+          { label: 'AGV 按时率', value: percent(agv.onTime, 1) },
+          { label: '有效任务', value: agv.valid, unit: '单' },
+          { label: '超时', value: agv.timeouts, unit: '单' },
+          { label: '平均等待', value: agv.avgWait, unit: '秒' },
+        ],
+        tables: [
+          { kind: 'table', title: `AGV 车辆表现（${agv.window}，剔除 ${agv.invalid.length} 单起终点相同）`, columns: ['车辆', '有效任务', '超时', '超时率', '平均等待(秒)'], rows: agv.byAgv.map((g) => [g.key, g.tasks, g.timeouts, percent(g.rate, 1), g.wait]) },
+          { kind: 'table', title: 'AGV 线路超时（≥3 单）', columns: ['线路', '任务', '超时率', '平均等待(秒)'], rows: agv.byRoute.map((g) => [g.key, g.tasks, percent(g.rate, 1), g.wait]) },
+          { kind: 'table', title: '调度数据异常：起点与终点相同', columns: ['任务号', '下发时间', '地点', '执行车辆'], rows: agv.invalid.map((t) => [t.id, t.issuedAt, t.origin, t.agv]) },
+        ],
+      };
+    }
     const stats = stationStats(db);
     const t = totals(stats);
     const stations = listStations(db);
     const bins = db.prepare('SELECT * FROM logistics_bin_types ORDER BY code').all() as Record<string, unknown>[];
-    const agv = hasAgv(db) ? agvSummary(db) : null;
     return {
       metrics: [
-        ...(agv ? [{ label: 'AGV 按时率', value: percent(agv.onTime, 1) }, { label: 'AGV 平均等待', value: agv.avgWait, unit: '秒' }] : []),
         { label: '近期识别', value: t.recognitions, unit: '箱' },
         { label: '抓取成功率', value: percent(t.picks - t.pickFailures, t.picks) },
         { label: '码垛合规率', value: percent(t.placements - t.placementInvalid, t.placements) },
         { label: '平均节拍', value: t.avgCycleTime === null ? '—' : round(t.avgCycleTime, 1), unit: '秒' },
       ],
       tables: [
-        ...(agv
-          ? [
-              { kind: 'table' as const, title: `AGV 车辆表现（${agv.window}，剔除 ${agv.invalid.length} 单起终点相同）`, columns: ['车辆', '有效任务', '超时', '超时率', '平均等待(秒)'], rows: agv.byAgv.map((g) => [g.key, g.tasks, g.timeouts, percent(g.rate, 1), g.wait]) },
-              { kind: 'table' as const, title: 'AGV 线路超时（≥3 单）', columns: ['线路', '任务', '超时率', '平均等待(秒)'], rows: agv.byRoute.map((g) => [g.key, g.tasks, percent(g.rate, 1), g.wait]) },
-            ]
-          : []),
         {
           kind: 'table',
           title: '工位（各工位最近 6 次上报）',

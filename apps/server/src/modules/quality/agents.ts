@@ -28,6 +28,8 @@ export const complaintAgent: AgentDefinition = {
   instructions:
     '你负责客诉受理。只引用当前问题对应的历史案例；相似症状不代表同一客诉或同一根因，无匹配应直接说明。围堵措施与历史永久对策分开写，永久对策在本次根因核实后再考虑采用。根因与供应商责任在现场确认前一律标为待核。需要8D时建议使用8D改善助手。',
   starters: ['客户反馈中控屏间歇黑屏，FPC 金手指发黑', '偏光片起泡以前怎么解决的', '最近有哪些未结客诉？'],
+  // The official pack has no customer complaints or case library.
+  datasets: ['demo'],
   context({ db, now, input, history, deps }) {
     evaluateDomain(deps, 'quality');
     const resolved = qualityQuery(db, input, history);
@@ -100,6 +102,8 @@ export const capaAgent: AgentDefinition = {
   instructions:
     '你负责8D改善。起草必须唯一确定本次客诉，编号未收录或不明确时要求核实，不得选择其他客诉代写。按D1–D8输出，以「8D草案」为准；写着「待失效分析」的步骤照写，不得用其他案例补全。本次根因与责任需独立核实，D6是拟定验证计划，不是验证已通过。仅查询整改项时不代写报告。',
   starters: ['为 CC-2610-12 起草 8D', '哪些整改项逾期了？', '同类异常复发应该怎么处理'],
+  // Drafts 8D reports for complaints; the official pack tracks 8D on nonconformances instead (quality.defects).
+  datasets: ['demo'],
   context({ db, now, input, history, deps }) {
     evaluateDomain(deps, 'quality');
     const today = qualityDate(now);

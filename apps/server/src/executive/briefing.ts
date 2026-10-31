@@ -98,6 +98,7 @@ export const briefingAgent: AgentDefinition = {
     '回答追问时同样以这些数据为准；只能先做一件事时，选清单的第 1 件并说明理由。',
   ].join('\n'),
   starters: ['今天最需要我决定的三件事是什么？', '各部门现在有什么风险？', '供应链和品质的问题有关联吗？'],
+  startersByDataset: { official: ['今天最需要我决定的三件事是什么？', '各部门现在有什么风险？', '缺料和停机有什么关系？'] },
   context({ deps, account, now }) {
     const domains = domainsFor(account.role);
     const situations = domains.map((d) => computeSituation(deps, d));
