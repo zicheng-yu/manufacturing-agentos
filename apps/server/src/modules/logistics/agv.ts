@@ -65,7 +65,8 @@ export function agvSummary(db: DB) {
     return [...map].map(([k, ts]) => ({ key: k, tasks: ts.length, timeouts: ts.filter((t) => t.timeout).length, rate: ts.filter((t) => t.timeout).length / ts.length, wait: round(avg(ts.map((t) => t.waitS)), 0) }));
   };
   const byAgv = group((t) => t.agv).sort((a, b) => b.rate - a.rate);
-  const byRoute = group((t) => `${t.origin} → ${t.dest}`).filter((r) => r.tasks >= 3).sort((a, b) => b.rate - a.rate);
+  // Rank routes by how many tasks ran late; a 2-of-6 route is noise next to 3-of-13.
+  const byRoute = group((t) => `${t.origin} → ${t.dest}`).filter((r) => r.tasks >= 5).sort((a, b) => b.timeouts - a.timeouts || b.rate - a.rate);
   const timeouts = valid.filter((t) => t.timeout).length;
   return {
     tasks: tasks.length,
@@ -85,26 +86,29 @@ export const agvAgent: AgentDefinition = {
   module: 'logistics',
   name: 'AGV 调度助手',
   description: '分析 AGV 任务的按时率、超时车辆与线路、等待热点和调度数据异常',
-  instructions: `你负责 AGV 调度。按时率对照${cite('SLM-2025-001-2.6')}中「AGV 任务自动执行率 ≥95%」；拥堵与死锁处理按${cite('SLM-2025-001-5.2')}；起点与终点相同的任务是数据异常，不计入按时率。`,
+  instructions: `你负责 AGV 调度。${cite('SLM-2025-001-2.6')}只规定「AGV 任务自动执行率 ≥95%」，没有单列按时率，按时率的 95% 是参照这一 KPI 的内部目标，正文要这样说明；拥堵与死锁处理按${cite('SLM-2025-001-5.2')}，这是制度已有要求，要写成「核查是否落实」而不是新措施；起点与终点相同的任务是数据异常，不计入按时率。原因判断要先比较车辆之间的指标，没有数据支持的原因写成待核。`,
   starters: ['哪台 AGV 超时最多？', 'AGV 按时率达标了吗', '哪条线路最堵'],
   context({ db }) {
     const a = agvSummary(db);
     if (a.tasks === 0) return { headline: '暂无 AGV 任务数据', blocks: [] };
     const worst = a.byAgv[0];
+    const allowed = Math.floor(a.valid * (1 - AGV_TARGET));
+    const waitNotCause = worst.wait <= a.avgWait;
     return {
-      headline: `AGV 按时率 ${percent(a.onTime, 1)}${a.onTime < AGV_TARGET ? '，低于 95% 目标' : '，达到 95% 目标'}；${worst.key} 超时率 ${percent(worst.rate, 1)} 最高`,
+      headline: `${worst.key} 超时率 ${percent(worst.rate, 1)} 最高；全队按时率 ${percent(a.onTime, 1)}${a.onTime < AGV_TARGET ? '，低于 95% 参照目标' : '，达到 95% 参照目标'}`,
       blocks: [
         { title: '按车辆', lines: a.byAgv.map((g) => `${g.key}：${g.tasks} 单，超时 ${g.timeouts}（${percent(g.rate, 1)}），平均等待 ${g.wait} 秒`) },
-        { title: '超时率最高的线路（≥3 单）', lines: a.byRoute.slice(0, 5).map((g) => `${g.key}：${g.tasks} 单，超时 ${percent(g.rate, 1)}，平均等待 ${g.wait} 秒`) },
+        { title: '超时单数最多的线路（≥5 单）', lines: a.byRoute.slice(0, 5).map((g) => `${g.key}：${g.tasks} 单，超时 ${g.timeouts} 单（${percent(g.rate, 1)}），平均等待 ${g.wait} 秒`) },
+        { title: '差距', lines: [`有效任务 ${a.valid} 单，达到 95% 需超时不超过 ${allowed} 单，现为 ${a.timeouts} 单，需减少 ${Math.max(0, a.timeouts - allowed)} 单`, waitNotCause ? `${worst.key} 平均等待 ${worst.wait} 秒，不高于全队平均 ${a.avgWait} 秒：它的超时不是排队等待造成的，更可能与所跑线路或车辆状态有关（待核）` : `${worst.key} 平均等待 ${worst.wait} 秒，高于全队平均 ${a.avgWait} 秒`] },
         { title: '调度数据异常', lines: [`${a.invalid.length} 单起点与终点相同（如 ${a.invalid.slice(0, 3).map((t) => `${t.id} ${t.origin}`).join('、')}），已从按时率中剔除`] },
-        { title: '依据', lines: [`${cite('SLM-2025-001-2.6')}：AGV 任务自动执行率 ≥95%`, `${cite('SLM-2025-001-5.2')}：死锁与拥堵触发后调度工程师 10 分钟内介入，反复出现的路段纳入地图优化`, `${cite('SLM-2025-001-4.3')}：电池健康档案，容量衰减超限立即停用更换`] },
+        { title: '依据', lines: [`${cite('SLM-2025-001-2.6')}：AGV 任务自动执行率 ≥95%（制度未单列按时率，95% 作参照）`, `${cite('SLM-2025-001-5.2')}：死锁与拥堵触发后调度工程师 10 分钟内介入，反复出现的路段纳入地图优化`, `${cite('SLM-2025-001-4.3')}：电池健康档案，容量衰减超限立即停用更换`] },
       ],
       facts: [`${a.window} 共 ${a.tasks} 单，有效 ${a.valid} 单，按时率 ${percent(a.onTime, 1)}`, `${worst.key} 超时 ${worst.timeouts}/${worst.tasks} 单`, `${a.invalid.length} 单起点与终点相同，属数据异常`],
-      pending: ['起终点相同的任务需核对 RCS 地图与任务下发记录'],
-      suggestions: [`检查 ${worst.key} 的电池健康与导航，必要时下线保养`, `对超时最高的线路「${a.byRoute[0]?.key ?? '—'}」做路径与让行规则优化`],
+      pending: ['起终点相同的任务需核对 RCS 地图与任务下发记录', ...(waitNotCause ? [`${worst.key} 超时原因（线路分配、导航或电池）数据中没有，需现场排查`] : [])],
+      suggestions: [`排查 ${worst.key} 所跑线路与车辆状态（导航、电池档案），必要时下线保养`, `对超时单数最多的线路「${a.byRoute[0]?.key ?? '—'}」做路径与让行规则优化`, `目标：超时从 ${a.timeouts} 单降到 ${allowed} 单以内`],
       artifacts: [
         { kind: 'table', title: 'AGV 车辆表现', columns: ['车辆', '有效任务', '超时', '超时率', '平均等待(秒)'], rows: a.byAgv.map((g) => [g.key, g.tasks, g.timeouts, percent(g.rate, 1), g.wait]) },
-        { kind: 'table', title: '线路超时', columns: ['线路', '任务', '超时率', '平均等待(秒)'], rows: a.byRoute.map((g) => [g.key, g.tasks, percent(g.rate, 1), g.wait]) },
+        { kind: 'table', title: '线路超时（按超时单数）', columns: ['线路', '任务', '超时', '超时率', '平均等待(秒)'], rows: a.byRoute.map((g) => [g.key, g.tasks, g.timeouts, percent(g.rate, 1), g.wait]) },
       ],
     };
   },

@@ -43,6 +43,9 @@ export function replaceWithOfficialPolicies(db: DB): void {
     const extra = GENERAL.test(p.title) ? [] : SYNONYMS.filter(([re]) => re.test(p.title)).map(([, words]) => words);
     const keywords = [...new Set([p.title, p.chapter, ...extra.join(' ').split(' ')])].join(' ');
     doc.run(p.id);
-    version.run(`${p.id}-v1`, p.id, `${p.section} ${p.title}`, `${p.document}（${p.code} ${p.version}）`, keywords, p.text, p.effectiveFrom, p.effectiveFrom ?? '2025-01-01');
+    // The PDF text wraps table rows across lines, and the assistant splits clauses at line breaks; one line per
+    // section keeps a table's conditions together (e.g. 年休假 tiers by 工龄).
+    const content = p.text.split('\n').map((line) => line.trim()).filter(Boolean).join(' / ');
+    version.run(`${p.id}-v1`, p.id, `${p.section} ${p.title}`, `${p.document}（${p.code} ${p.version}）`, keywords, content, p.effectiveFrom, p.effectiveFrom ?? '2025-01-01');
   }
 }

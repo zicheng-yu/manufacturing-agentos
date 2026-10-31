@@ -200,7 +200,7 @@ export const logisticsModule: DomainModule = {
         ],
         tables: [
           { kind: 'table', title: `AGV 车辆表现（${agv.window}，剔除 ${agv.invalid.length} 单起终点相同）`, columns: ['车辆', '有效任务', '超时', '超时率', '平均等待(秒)'], rows: agv.byAgv.map((g) => [g.key, g.tasks, g.timeouts, percent(g.rate, 1), g.wait]) },
-          { kind: 'table', title: 'AGV 线路超时（≥3 单）', columns: ['线路', '任务', '超时率', '平均等待(秒)'], rows: agv.byRoute.map((g) => [g.key, g.tasks, percent(g.rate, 1), g.wait]) },
+          { kind: 'table', title: 'AGV 线路超时（≥5 单，按超时单数）', columns: ['线路', '任务', '超时', '超时率', '平均等待(秒)'], rows: agv.byRoute.map((g) => [g.key, g.tasks, g.timeouts, percent(g.rate, 1), g.wait]) },
           { kind: 'table', title: '调度数据异常：起点与终点相同', columns: ['任务号', '下发时间', '地点', '执行车辆'], rows: agv.invalid.map((t) => [t.id, t.issuedAt, t.origin, t.agv]) },
         ],
       };

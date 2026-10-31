@@ -1,7 +1,7 @@
 // The official pack is what the demo runs on: its situations, the agents' figures and the storyline must hold.
 import type { Signal } from '@agentos/shared';
 import { describe, expect, it } from 'vitest';
-import { OFFICIAL_STORYLINE } from '../src/seed/storyline.ts';
+import { OFFICIAL_STORYLINE, stepBody } from '../src/seed/storyline.ts';
 import { setup } from './helpers.ts';
 
 type Cockpit = { situations: { domain: string; level: string; headline: string }[]; signals: Signal[] };
@@ -57,7 +57,7 @@ describe('official dataset', () => {
   it('replays 线束03 的连锁反应 into linked decisions', async () => {
     const env = official();
     for (const step of OFFICIAL_STORYLINE) {
-      const res = await env.bridge(step.path, step.body);
+      const res = await env.bridge(step.path, stepBody(step, env.deps.clock()));
       expect(res.status, step.label).toBe(200);
       env.advance(0.5);
     }

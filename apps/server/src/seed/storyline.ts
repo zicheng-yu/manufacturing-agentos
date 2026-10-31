@@ -8,8 +8,11 @@ export interface StoryStep {
   /** Pause before this step during a live replay. */
   delayMs: number;
   path: '/api/bridge/events' | '/api/modules/logistics/metrics' | '/api/modules/production/readings';
-  body: unknown;
+  /** A function gets the replay's clock, for readings that need real timestamps. */
+  body: unknown | ((now: Date) => unknown);
 }
+
+export const stepBody = (step: StoryStep, now: Date): unknown => (typeof step.body === 'function' ? step.body(now) : step.body);
 
 const attrition = (position: string, employeeName: string, reason: string) => ({
   domain: 'hr',
@@ -95,7 +98,14 @@ export const STORYLINE: StoryStep[] = [
   { label: '供应链部离职预警（2）', delayMs: 2500, path: '/api/bridge/events', body: attrition('计划专员', '刘某', '家庭原因异地发展') },
 ];
 
-const vibration = (...values: number[]) => values.map((v) => ({ equipmentId: 'EQ-IM-012', vibration: v, temperature: 58 + v * 2 }));
+/** Hourly readings ending `endHoursAgo` before the replay, so the drift reads as a trend rather than a burst. */
+const vibration = (endHoursAgo: number, ...values: number[]) => (now: Date) =>
+  values.map((v, i) => ({
+    equipmentId: 'EQ-IM-012',
+    ts: new Date(now.getTime() - (endHoursAgo + values.length - 1 - i) * 3_600_000).toISOString(),
+    vibration: v,
+    temperature: 58 + v * 2,
+  }));
 
 const agvTimeout = (taskId: string, waitS: number) => ({
   domain: 'logistics',
@@ -109,8 +119,8 @@ const agvTimeout = (taskId: string, waitS: number) => ({
 
 /** "线束03 的连锁反应": an injection press drifts toward failure while the harness that is already short arrives late. */
 export const OFFICIAL_STORYLINE: StoryStep[] = [
-  { label: 'EQ-IM-012 注塑机振动上升', delayMs: 2000, path: '/api/modules/production/readings', body: vibration(2.4, 2.9, 3.1) },
-  { label: 'EQ-IM-012 出现故障前兆', delayMs: 3000, path: '/api/modules/production/readings', body: vibration(3.4) },
+  { label: 'EQ-IM-012 注塑机振动上升', delayMs: 2000, path: '/api/modules/production/readings', body: vibration(2, 2.4, 2.9, 3.1) },
+  { label: 'EQ-IM-012 出现故障前兆', delayMs: 3000, path: '/api/modules/production/readings', body: vibration(1, 3.4) },
   { label: 'AGV-02 送线束03 超时', delayMs: 3000, path: '/api/bridge/events', body: agvTimeout('AGV-T6201', 240) },
   { label: 'AGV-02 再次超时', delayMs: 2500, path: '/api/bridge/events', body: agvTimeout('AGV-T6205', 310) },
   {
@@ -126,7 +136,7 @@ export const OFFICIAL_STORYLINE: StoryStep[] = [
       payload: { supplierId: 'SUP-01', supplierName: '苏州精工科技', materialCode: 'M-10003' },
     },
   },
-  { label: 'EQ-IM-012 振动超限', delayMs: 4000, path: '/api/modules/production/readings', body: vibration(4.9) },
+  { label: 'EQ-IM-012 振动超限', delayMs: 4000, path: '/api/modules/production/readings', body: vibration(0, 4.9) },
   { label: '供应链部离职预警（1）', delayMs: 4000, path: '/api/bridge/events', body: attrition('采购工程师', '陈某', '收到外部 offer') },
   { label: '供应链部离职预警（2）', delayMs: 2500, path: '/api/bridge/events', body: attrition('计划专员', '刘某', '家庭原因异地发展') },
 ];

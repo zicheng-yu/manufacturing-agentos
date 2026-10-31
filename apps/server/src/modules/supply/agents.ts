@@ -305,8 +305,9 @@ export const inventoryAgent: AgentDefinition = {
           note: '可用天数按到货时间线计算：每天扣日耗，订单在（延迟后的）到货日入库。建议补货量只在低于安全库存时计算；数量为0但仍有缺口时，应加急现有订单并核实排产。',
         },
       ],
+      // Only dated risks become events; a material without a usage rate has no stockout date to warn about.
       events: risky
-        .filter((m) => materialStatus(m) === '缺料风险')
+        .filter((m) => m.dailyUsage > 0 && materialStatus(m) === '缺料风险')
         .map((m) => ({
           domain: 'supply' as const,
           type: 'stockout_risk',

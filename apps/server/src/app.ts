@@ -161,7 +161,24 @@ export function createApp(deps: Deps): Hono<AppEnv> {
   app.post('/api/agents/:agentId/turns', async (c) => {
     const account = requireAccount(c);
     const { question, conversationId } = await body(c, TurnBody);
-    return c.json(await runTurn(deps, { account, agentId: c.req.param('agentId'), conversationId, question }));
+    const agentId = c.req.param('agentId');
+    if (!c.req.header('accept')?.includes('text/event-stream')) return c.json(await runTurn(deps, { account, agentId, conversationId, question }));
+    // Streaming: "delta" events carry answer text as the model writes it, then "turn" carries the saved result.
+    return streamSSE(c, async (stream) => {
+      let writes = Promise.resolve();
+      const onAnswer = (text: string) => {
+        writes = writes.then(() => stream.writeSSE({ event: 'delta', data: JSON.stringify({ text }) }));
+      };
+      try {
+        const result = await runTurn(deps, { account, agentId, conversationId, question, onAnswer });
+        await writes;
+        await stream.writeSSE({ event: 'turn', data: JSON.stringify(result) });
+      } catch (error) {
+        await writes;
+        const message = error instanceof HTTPException ? error.message : '回答失败，请重试';
+        await stream.writeSSE({ event: 'error', data: JSON.stringify({ error: message }) });
+      }
+    });
   });
 
   app.delete('/api/turns/:id', (c) => {

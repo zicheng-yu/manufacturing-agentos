@@ -7,6 +7,7 @@ import { computeSituation, listSignals, signalEvents } from '../core/signals.ts'
 import { addMinutes, isoDate } from '../core/util.ts';
 
 const LEVEL_LABEL = { normal: '正常', watch: '关注', alert: '告警' } as const;
+const SEVERITY_LABEL = { info: '提示', warn: '警告', critical: '严重' } as const;
 
 /** HR departments that correspond to another module, so attrition can be linked to that module's risks. */
 const DEPARTMENT_DOMAIN: Record<string, Domain> = { 供应链部: 'supply', 品质部: 'quality', 智能物流部: 'logistics' };
@@ -111,7 +112,8 @@ export const briefingAgent: AgentDefinition = {
     '你面向董事长。先用一句话概括全局态势，再列出今天最需要决定的事，最后用一两句话点出跨部门关联及其含义。',
     '「今天最需要决定的事」必须与业务数据中的同名清单一一对应：顺序、事项、建议负责人、建议完成时限都不得改动或合并，可以用更适合董事长阅读的话说明影响。',
     '引用「信号明细」里的具体数字。跨部门关联区分共同实体、共同原因标签与人员风险叠加，只能表述证据支持的关联，不能把标签共现写成已确认因果；按关联证据表的信号与事件编号追溯。',
-    '回答追问时同样以这些数据为准；只能先做一件事时，选清单的第 1 件并说明理由。',
+    '回答追问时同样以这些数据为准；只能先做一件事时，选清单的第 1 件，按「排序依据」里的时间窗、影响和是否需要董事长拍板说明它为什么更急（不要拿建议完成时限当理由），并说明其余两件由谁同步跟进。',
+    '问到各部门风险时，按部门逐一列出状态与 1–2 个关键数字。',
   ].join('\n'),
   starters: ['今天最需要我决定的三件事是什么？', '各部门现在有什么风险？', '供应链和品质的问题有关联吗？'],
   startersByDataset: { official: ['今天最需要我决定的三件事是什么？', '各部门现在有什么风险？', '缺料和停机有什么关系？'] },
@@ -143,6 +145,18 @@ export const briefingAgent: AgentDefinition = {
       };
     });
 
+    // What the ranking rests on, so "only one thing first" is argued from the facts, not from suggested deadlines.
+    const window = (signal: Signal): string => {
+      const dates = signalEvents(deps, signal).map((e) => e.payload.stockoutDate).filter((d): d is string => typeof d === 'string').sort();
+      if (!dates.length) return '无明确时间窗';
+      const days = Math.round((Date.parse(dates[0]) - Date.parse(isoDate(now))) / 86_400_000);
+      return `距预计断料约 ${days} 天（${dates[0]}）`;
+    };
+    const basis = decisions.map((d, i) => {
+      const weight = ruleFor(deps, d.signal)?.playbook.weight ?? 1;
+      return `${i + 1}. ${d.signal.title}：${SEVERITY_LABEL[d.signal.severity]}；${weight === 3 ? '需董事长拍板' : '经理层可处置'}；${window(d.signal)}；影响：${d.impact}`;
+    });
+
     const alerts = situations.filter((s) => s.level === 'alert').map((s) => s.title);
     const headline = alerts.length
       ? `${alerts.join('、')}处于告警，今天有 ${decisions.length} 件事需要决定`
@@ -166,6 +180,7 @@ export const briefingAgent: AgentDefinition = {
               )
             : ['暂无'],
         },
+        { title: '排序依据（严重度 → 是否需董事长拍板 → 时间窗）', lines: basis.length ? basis : ['无'] },
         { title: '跨部门关联', lines: links.length ? links : ['未发现跨部门关联'] },
         { title: '信号明细', lines: signals.length ? signals.map((sig) => signalDetail(deps, sig)) : ['无活跃信号'] },
       ],

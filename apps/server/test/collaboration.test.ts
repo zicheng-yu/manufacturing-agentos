@@ -4,7 +4,7 @@ import { ingestEvent } from '../src/core/events.ts';
 import { listMemoryForTurns, listTasks, remember } from '../src/core/memory.ts';
 import { buildMessages } from '../src/core/agents/prompt.ts';
 import { crossDomainEvidence } from '../src/executive/briefing.ts';
-import { OFFICIAL_STORYLINE } from '../src/seed/storyline.ts';
+import { OFFICIAL_STORYLINE, stepBody } from '../src/seed/storyline.ts';
 import { setup, type TestEnv } from './helpers.ts';
 
 let env: TestEnv;
@@ -91,7 +91,7 @@ describe('cross-domain evidence', () => {
   it('keeps the official storyline decisions and supplies traceable collaboration evidence', async () => {
     const official = setup(new Date('2026-10-30T09:00:00+08:00'), 'official');
     try {
-      for (const step of OFFICIAL_STORYLINE) { expect((await official.bridge(step.path, step.body)).status).toBe(200); official.advance(0.5); }
+      for (const step of OFFICIAL_STORYLINE) { expect((await official.bridge(step.path, stepBody(step, official.deps.clock()))).status).toBe(200); official.advance(0.5); }
       const result = await official.send('POST', '/api/cockpit/briefing', {}, { Cookie: await official.login('chairman') });
       expect(result.status).toBe(200);
       expect(result.body.turn.result.artifacts[0].rows).toHaveLength(3);

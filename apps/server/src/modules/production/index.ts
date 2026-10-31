@@ -103,7 +103,8 @@ export const productionModule: DomainModule = {
         impact: '按当前产能部分客户订单会延期交付',
         owner: '生产经理与销售',
         dueHours: 24,
-        weight: 3,
+        // Overtime, line changes and subcontracting are the production manager's call; the chairman is informed.
+        weight: 2,
       },
     },
   ],
