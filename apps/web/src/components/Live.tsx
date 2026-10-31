@@ -78,12 +78,10 @@ export function EventRow({
   event,
   flashing,
   onStatus,
-  renewed,
 }: {
   event: AgentOSEvent;
   flashing?: boolean;
   onStatus?: (event: AgentOSEvent, status: AgentOSEvent['status']) => void | Promise<void>;
-  renewed?: boolean;
 }) {
   const [pending, setPending] = useState<AgentOSEvent['status'] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -103,7 +101,7 @@ export function EventRow({
           <span className="text-sm font-medium text-slate-800">{event.title}</span>
           {event.count > 1 && <span className="rounded bg-slate-800 px-1.5 text-[11px] font-medium text-white">×{event.count}</span>}
           {event.status === 'resolved' && <span className="rounded bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">✓ 已解决</span>}
-          {renewed && <span className="rounded bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900">问题仍存在 · 新预警</span>}
+          {event.status !== 'resolved' && typeof event.payload.reopenedFromEventId === 'string' && <span className="rounded bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900">问题仍存在 · 新预警</span>}
         </div>
         {event.summary && <p className="mt-0.5 text-xs leading-relaxed text-slate-500">{event.summary}</p>}
         <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-400">

@@ -23,7 +23,6 @@ export function Events() {
   const query = new URLSearchParams({ limit: '200', sort, ...(domain && { domain }), ...(status && { status }) });
   const { data, setData, loading, error, reload } = useApi<AgentOSEvent[]>(`/api/events?${query}`);
   const [notice, setNotice] = useState<{ title: string; status: AgentOSEvent['status']; renewed: boolean } | null>(null);
-  const [renewedId, setRenewedId] = useState<string | null>(null);
   const top = useRef<HTMLDivElement>(null);
   const { flashing, flash } = useFlash();
   const timer = useRef<number | undefined>(undefined);
@@ -42,7 +41,6 @@ export function Events() {
     const { activeEvent, ...updated } = await api<AgentOSEvent & { activeEvent?: AgentOSEvent }>(`/api/events/${event.id}`, { method: 'PATCH', body: { status: next } });
     window.clearTimeout(timer.current);
     setNotice({ title: event.title, status: next, renewed: !!activeEvent });
-    setRenewedId(activeEvent?.id ?? null);
     // Apply the confirmed response immediately; the background reload then fills any gap in the 200-row window.
     setData(prev => {
       if (!prev) return prev;
@@ -90,7 +88,7 @@ export function Events() {
         {data?.length ? (
           <ul className="divide-y divide-slate-100">
             {data.map((e) => (
-              <EventRow key={e.id} event={e} flashing={flashing(e.id)} renewed={renewedId === e.id} onStatus={setEventStatus} />
+              <EventRow key={e.id} event={e} flashing={flashing(e.id)} onStatus={setEventStatus} />
             ))}
           </ul>
         ) : (

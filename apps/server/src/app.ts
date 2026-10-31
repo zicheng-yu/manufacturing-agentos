@@ -207,7 +207,14 @@ export function createApp(deps: Deps): Hono<AppEnv> {
     const updated = setEventStatus(deps, event.id, status);
     // A rule can immediately raise a new event if the underlying business condition still holds.
     const replacement = status === 'resolved' ? deps.db.prepare(`SELECT id FROM events WHERE domain = ? AND type = ? AND dedupe_key = (SELECT dedupe_key FROM events WHERE id = ?) AND id <> ? AND status != 'resolved' ORDER BY last_seen_at DESC LIMIT 1`).get(event.domain, event.type, event.id, event.id) as Row | undefined : undefined;
-    const activeEvent = replacement ? getEvent(deps, String(replacement.id)) : null;
+    let activeEvent = replacement ? getEvent(deps, String(replacement.id)) : null;
+    if (activeEvent) {
+      // This belongs to the event, not to the client's last clicked row. Preserve it across reloads and later actions.
+      deps.db.prepare('UPDATE events SET payload_json = ? WHERE id = ?')
+        .run(JSON.stringify({ ...activeEvent.payload, reopenedFromEventId: event.id }), activeEvent.id);
+      activeEvent = getEvent(deps, activeEvent.id)!;
+      deps.bus.publish({ kind: 'event.updated', event: activeEvent });
+    }
     return c.json({ ...redactEvent(deps, updated, account.role), ...(activeEvent ? { activeEvent: redactEvent(deps, activeEvent, account.role) } : {}) });
   });
 

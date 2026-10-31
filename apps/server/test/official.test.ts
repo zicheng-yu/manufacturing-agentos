@@ -26,9 +26,14 @@ describe('official dataset', () => {
       expect(changed.body.activeEvent.id).not.toBe(original.id);
       expect(changed.body.activeEvent.title).toBe(original.title);
       expect(changed.body.activeEvent.status).toBe('open');
+      expect(changed.body.activeEvent.payload.reopenedFromEventId).toBe(original.id);
+      const second = before.find((e: any) => e.id !== original.id && e.payload.alertKey !== undefined);
+      const next = await env.send('PATCH', `/api/events/${second.id}`, { status: 'resolved' }, { Cookie: cookie });
       const remaining = (await env.get('/api/events?domain=production&status=unresolved', cookie)).body;
       expect(remaining.some((e: any) => e.id === original.id)).toBe(false);
       expect(remaining.some((e: any) => e.id === changed.body.activeEvent.id)).toBe(true);
+      expect(remaining.find((e: any) => e.id === changed.body.activeEvent.id).payload.reopenedFromEventId).toBe(original.id);
+      expect(remaining.find((e: any) => e.id === next.body.activeEvent.id).payload.reopenedFromEventId).toBe(second.id);
     } finally { env.deps.db.close(); }
   });
 
