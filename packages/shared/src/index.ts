@@ -137,6 +137,31 @@ export interface AgentResult {
   artifacts: Artifact[];
   eventIds: string[];
   policy?: PolicyResponse;
+  discoveries?: Discovery[];
+  reference?: AnalysisReference;
+}
+
+export interface Discovery {
+  id: string;
+  domain: Domain;
+  title: string;
+  kind: '历史观察' | '规则回测' | '情景估算';
+  summary: string;
+  source: string;
+  scope: string;
+  limitation: string;
+  agentId: string;
+  question: string;
+  evidence: TableArtifact;
+}
+
+export interface AnalysisReference {
+  turnId: string;
+  conversationId: string;
+  agentId: string;
+  createdAt: string;
+  refreshedAt?: string;
+  summary: string;
 }
 
 export interface PolicyCitation {

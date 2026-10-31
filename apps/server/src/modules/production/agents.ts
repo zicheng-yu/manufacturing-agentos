@@ -13,6 +13,7 @@ import {
   STRATEGY_LABEL,
   VIBRATION_ALARM,
   VIBRATION_WARN,
+  warningAudit,
 } from './data.ts';
 
 /** Where each OEE loss reason is handled, so advice points at the right owner. */
@@ -37,7 +38,8 @@ export const equipmentAgent: AgentDefinition = {
     const focus = health.find((h) => input.toUpperCase().includes(h.equipment.id)) ?? null;
     const repairs = listRepairs(db);
     const leads = health.flatMap((h) => h.precursors);
-    const avgLead = leads.length ? Math.round(leads.reduce((s, l) => s + l.hoursAhead, 0) / leads.length) : null;
+    const audit = warningAudit(db);
+    const avgLead = leads.length ? round(leads.reduce((s, l) => s + l.hoursAhead, 0) / leads.length, 1) : null;
     const flagged = health.filter((h) => h.status !== '正常' || h.alarms.length);
     const blocks = [
       {
@@ -50,8 +52,8 @@ export const equipmentAgent: AgentDefinition = {
       {
         title: `故障前 ${PRECURSOR_HOURS} 小时的振动前兆`,
         lines: leads.length
-          ? leads.map((l) => `${l.repair.equipmentId}：${l.firstWarning} 起进入关注区（≥${VIBRATION_WARN} mm/s，${l.warningReadings} 次），${l.hoursAhead} 小时后发生「${l.repair.symptom}」（原因 ${l.repair.cause}，停机 ${l.repair.downtimeMin} 分钟）`)
-          : ['维修记录前没有出现关注区读数'],
+          ? leads.map((l) => `${l.repair.id} ${l.repair.equipmentId}：${l.firstWarning} 满足过去24小时至少${PRECURSOR_READINGS}次读数≥${VIBRATION_WARN} mm/s，${l.hoursAhead} 小时后记录「${l.repair.symptom}」（原因 ${l.repair.cause}，停机 ${l.repair.downtimeMin} 分钟）`)
+          : ['维修记录前72小时没有匹配到该预警规则的触发记录'],
       },
     ];
     if (focus) {
@@ -65,15 +67,16 @@ export const equipmentAgent: AgentDefinition = {
       });
     }
     return {
-      headline: avgLead !== null ? `${leads.length}/${repairs.length} 次故障前振动已进入关注区，平均提前 ${avgLead} 小时` : `${flagged.length} 台设备出现过振动超限`,
+      headline: avgLead !== null ? `历史回测覆盖 ${leads.length}/${repairs.length} 次故障，触发平均提前 ${avgLead} 小时` : `${flagged.length} 台设备出现过振动超限`,
       blocks,
       facts: [
-        ...(avgLead !== null ? [`${repairs.length} 次故障中有 ${leads.length} 次在发生前 ${PRECURSOR_HOURS} 小时内振动已多次进入关注区（≥${VIBRATION_WARN} mm/s），平均提前 ${avgLead} 小时`] : []),
+        ...(avgLead !== null ? [`历史回测：${repairs.length} 次故障中 ${leads.length} 次在前${PRECURSOR_HOURS}小时触发24小时内≥${PRECURSOR_READINGS}次读数越线规则，按实际触发算平均提前 ${avgLead} 小时`] : []),
+        `${audit.mature} 次具有完整72小时后续观察的告警中 ${audit.unmatched} 次未匹配维修记录；随访不足的 ${audit.censored} 次另计`,
         ...health.filter((h) => h.missing > 0).slice(0, 3).map((h) => `${h.equipment.id} 缺失 ${h.missing} 条读数`),
       ],
-      pending: ['前兆与故障的对应基于时间先后，需设备工程师结合维修报告确认因果'],
+      pending: ['素材为官方模拟数据；回测覆盖不代表未来全部故障可预测，未匹配记录不等于确定误报；阈值与点检措施须设备工程师确认'],
       suggestions: [
-        `24 小时内 ≥${PRECURSOR_READINGS} 次读数进入关注区（≥${VIBRATION_WARN} mm/s）即派点检单，按历史可提前约 ${avgLead ?? '—'} 小时处置；≥${VIBRATION_ALARM} mm/s 立即停机检查`,
+        `24 小时内 ≥${PRECURSOR_READINGS} 次读数≥${VIBRATION_WARN} mm/s 建议点检；历史平均提前量仅供评估，结合设备工况确认处置`,
         '缺失读数较多的设备先检查传感器与采集网关',
       ],
       artifacts: [
@@ -118,7 +121,7 @@ export const oeeAgent: AgentDefinition = {
       blocks: [
         {
           title: '各产线近 7 日 OEE',
-          lines: lines.map((l) => `${l.line}：OEE ${l.oee}% = 时间 ${l.availability}% × 性能 ${l.performance}% × 质量 ${l.quality}%，最弱项 ${l.weakest}，主要损失 ${l.losses[0]?.reason ?? '—'}`),
+          lines: lines.map((l) => `${l.line}：OEE均值 ${l.oee}%；三个因子的各自均值为时间 ${l.availability}%、性能 ${l.performance}%、质量 ${l.quality}%（均值乘积不等于OEE均值），最弱项 ${l.weakest}，主要损失 ${l.losses[0]?.reason ?? '—'}`),
         },
         { title: '全厂损失原因（按停机分钟）', lines: losses.map((l) => `${l.reason}：${Math.round(l.downtimeMin)} 分钟，${l.days} 个线日`) },
         {
@@ -128,7 +131,7 @@ export const oeeAgent: AgentDefinition = {
       ],
       facts: [
         `近 7 日全厂 OEE ${plant}%，低于目标 ${OEE_TARGET}%（演示设定）`,
-        ...(losses[0] ? [`最大损失为「${losses[0].reason}」，累计停机 ${Math.round(losses[0].downtimeMin)} 分钟`] : []),
+        ...(losses[0] ? [`主要停机原因标为「${losses[0].reason}」的线日累计停机 ${Math.round(losses[0].downtimeMin)} 分钟；不能细分为该原因的精确损失`] : []),
       ],
       suggestions: losses.slice(0, 3).map((l) => `${l.reason}：${LOSS_ACTIONS[l.reason] ?? '现场核实'}`),
       artifacts: [

@@ -17,28 +17,29 @@ function rowToMemory(row: Row): MemoryRecord {
   };
 }
 
-/** Adds a record unless the same content (ignoring punctuation and spacing) already exists in that scope. */
+/** Deduplicate within its originating turn and kind; another conversation must retain its own provenance. */
 export function remember(
   db: DB,
   input: Omit<MemoryRecord, 'id' | 'createdAt'>,
   now: Date,
 ): MemoryRecord | null {
   const key = normalizeText(input.content);
-  const existing = db.prepare('SELECT content FROM memory WHERE domain = ?').all(input.domain) as Row[];
+  const existing = db.prepare('SELECT content FROM memory WHERE domain = ? AND kind = ? AND turn_id IS ? AND agent_id IS ?')
+    .all(input.domain, input.kind, input.turnId, input.agentId) as Row[];
   if (existing.some((r) => normalizeText(String(r.content)) === key)) return null;
   const id = newId('MEM');
   db.prepare(
-    `INSERT INTO memory (id, domain, kind, content, source, agent_id, turn_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(id, input.domain, input.kind, input.content, input.source, input.agentId, input.turnId, now.toISOString());
+    `INSERT INTO memory (id, domain, kind, content, source, agent_id, turn_id, created_at, verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(id, input.domain, input.kind, input.content, input.source, input.agentId, input.turnId, now.toISOString(), input.kind === 'fact' ? 1 : 0);
   return rowToMemory(db.prepare('SELECT * FROM memory WHERE id = ?').get(id) as Row);
 }
 
-export function listMemory(db: DB, scopes: Scope[], limit = 50): MemoryRecord[] {
+export function listMemory(db: DB, scopes: Scope[], limit = 50, accountId?: string): MemoryRecord[] {
   if (scopes.length === 0) return [];
   const placeholders = scopes.map(() => '?').join(',');
   const rows = db
-    .prepare(`SELECT * FROM memory WHERE domain IN (${placeholders}) ORDER BY created_at DESC LIMIT ${Math.min(limit, 500)}`)
-    .all(...scopes) as Row[];
+    .prepare(`SELECT * FROM memory WHERE domain IN (${placeholders}) ${accountId ? 'AND turn_id IN (SELECT id FROM turns WHERE account_id = ?)' : ''} ORDER BY created_at DESC LIMIT ${Math.min(limit, 500)}`)
+    .all(...scopes, ...(accountId ? [accountId] : [])) as Row[];
   return rows.map(rowToMemory);
 }
 
@@ -46,7 +47,7 @@ export function listMemory(db: DB, scopes: Scope[], limit = 50): MemoryRecord[] 
 export function listMemoryForTurns(db: DB, turnIds: string[]): MemoryRecord[] {
   if (turnIds.length === 0) return [];
   const placeholders = turnIds.map(() => '?').join(',');
-  const rows = db.prepare(`SELECT * FROM memory WHERE turn_id IN (${placeholders}) ORDER BY created_at`).all(...turnIds) as Row[];
+  const rows = db.prepare(`SELECT * FROM memory WHERE turn_id IN (${placeholders}) AND (kind != 'fact' OR verified = 1) ORDER BY created_at`).all(...turnIds) as Row[];
   return rows.map(rowToMemory);
 }
 

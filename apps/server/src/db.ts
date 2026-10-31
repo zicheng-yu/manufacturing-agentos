@@ -105,6 +105,8 @@ export function openDb(path: string): DB {
 
 export function migrate(db: DB, moduleSchemas: string[]): void {
   db.exec(CORE_SCHEMA);
+  ensureColumns(db, 'conversations', { reference_turn_id: 'TEXT', reference_finding_id: 'TEXT' });
+  ensureColumns(db, 'memory', { verified: 'INTEGER NOT NULL DEFAULT 0' });
   for (const schema of moduleSchemas) db.exec(schema);
 }
 

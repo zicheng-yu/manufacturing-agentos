@@ -46,7 +46,7 @@ export function crossDomainLinks(deps: Deps, signals: Signal[]): string[] {
   }
   const links = [...seen]
     .filter(([, byDomain]) => byDomain.size >= 2)
-    .map(([value, byDomain]) => `${value}：${[...byDomain].map(([d, title]) => `${DOMAIN_LABELS[d]}「${title}」`).join('；')}`);
+    .map(([value, byDomain]) => `${value}：${[...byDomain].map(([d, title]) => `${DOMAIN_LABELS[d]}「${title}」`).join('；')}（共享标识/原因标签是关联线索，未证明同一事件链或因果）`);
 
   const activeDomains = new Set(signals.map((s) => s.domain));
   for (const signal of signals.filter((s) => s.ruleId === 'hr-team-attrition')) {
