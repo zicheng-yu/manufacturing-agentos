@@ -62,6 +62,7 @@ export function Layout() {
   );
 
   const llm = catalog.llm.mode === 'llm' ? catalog.llm.model : '离线规则模式';
+  const role = ROLE_LABELS[session.account.role];
 
   return (
     <div className="flex h-dvh min-h-0 min-w-0 flex-col md:flex-row">
@@ -82,21 +83,11 @@ export function Layout() {
           <div className="hidden px-2.5 pt-4 pb-1 font-mono text-[10px] tracking-[0.12em] text-slate-400 md:block">系统 · SYSTEM</div>
           {system.map(link)}
         </nav>
-        <div className="hidden items-center gap-2.5 border-t border-slate-200 px-4 py-3 md:flex">
-          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[13px] font-bold text-slate-700">{session.account.displayName.slice(0, 1)}</span>
-          <div className="min-w-0 flex-1 text-xs leading-tight">
-            <div className="font-semibold text-slate-900">{session.account.displayName}</div>
-            <div className="text-slate-500">{ROLE_LABELS[session.account.role]}</div>
-          </div>
-          <button onClick={() => void logout()} aria-label="退出登录" title="退出登录" className="rounded p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-900">
-            <LogOut className="size-4" />
-          </button>
-        </div>
       </aside>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <header className="flex flex-wrap items-center gap-x-5 gap-y-1 border-b border-slate-200 bg-white px-4 py-3 md:px-7">
-          <div className="min-w-0 flex-1 truncate text-[13px] text-slate-600">
+          <div className="min-w-0 flex-1 truncate text-[13px] text-slate-600" title={session.company.name}>
             <span className="hidden sm:inline">{session.company.name}</span>
           </div>
           <span className="rounded-full border border-watch-line bg-watch-soft px-2.5 py-0.5 text-xs text-watch-ink" title={session.company.demoNotice}>
@@ -110,9 +101,22 @@ export function Layout() {
             {live ? '实时连接' : '未连接'}
           </span>
           <Clock />
-          <button onClick={() => void logout()} className="text-[11px] text-slate-500 hover:text-slate-800 md:hidden">
-            退出
-          </button>
+          {/* The signed-in account and its way out, in the corner people look for them. */}
+          <div className="flex items-center gap-2 border-l border-slate-200 pl-4">
+            <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-slate-200 text-xs font-bold text-slate-700">{session.account.displayName.slice(0, 1)}</span>
+            <span className="hidden text-xs leading-tight sm:block">
+              <span className="block font-semibold whitespace-nowrap text-slate-900">{session.account.displayName}</span>
+              {role !== session.account.displayName && <span className="block whitespace-nowrap text-slate-500">{role}</span>}
+            </span>
+            <button
+              type="button"
+              onClick={() => void logout()}
+              className="ml-1 inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
+            >
+              <LogOut className="size-3.5" />
+              退出登录
+            </button>
+          </div>
         </header>
         <main key={location.pathname.split('/')[1]} className="min-h-0 min-w-0 flex-1 overflow-y-auto">
           <Outlet />
